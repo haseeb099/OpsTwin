@@ -1,0 +1,26 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "prisma generate && next build",
+  "installCommand": "npm install",
+  "env": {
+    "DATABASE_URL": "@opstwin-db-url",
+    "GITHUB_TOKEN": "@opstwin-github-token",
+    "SLACK_WEBHOOK_URL": "@opstwin-slack-webhook",
+    "NEXTAUTH_SECRET": "@opstwin-auth-secret"
+  },
+  "regions": ["lhr1"],
+  "functions": {
+    "src/app/api/**/*.ts": {
+      "maxDuration": 30
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" }
+      ]
+    }
+  ]
+}

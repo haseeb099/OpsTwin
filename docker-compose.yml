@@ -1,0 +1,21 @@
+# Run OpsTwin locally with: docker compose up --build
+# Then visit http://localhost:3000
+
+services:
+  opstwin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: opstwin
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: "file:/app/data/dev.db"
+    volumes:
+      # Persist the SQLite database across container restarts.
+      - opstwin-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  opstwin-data:

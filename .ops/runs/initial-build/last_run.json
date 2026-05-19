@@ -1,0 +1,278 @@
+{
+  "run_id": "initial-build",
+  "timestamp": "2026-05-19T12:50:00Z",
+  "original_prompt": "Wire OpsTwin (Next.js 14, Prisma, SQLite) into a fully working, ready-to-launch app: db + seed, real API routes (no in-memory), app shell, dashboard UI, upload page, configs, docker. Verify typecheck, build, endpoints.",
+  "branch": "ops/initial-build-20260519-1250",
+  "confidence": "high",
+  "files_changed": [
+    {
+      "path": ".env",
+      "lines_added": 1,
+      "lines_removed": 0,
+      "diff": "+ DATABASE_URL=\"file:./dev.db\""
+    },
+    {
+      "path": ".env.local",
+      "lines_added": 2,
+      "lines_removed": 0,
+      "diff": "+ DATABASE_URL + NEXTAUTH_URL"
+    },
+    {
+      "path": ".gitignore",
+      "lines_added": 11,
+      "lines_removed": 0,
+      "diff": "+ node_modules, .next, prisma/dev.db*, .env.local, etc."
+    },
+    {
+      "path": "next.config.js",
+      "lines_added": 6,
+      "lines_removed": 0,
+      "diff": "+ reactStrictMode: true"
+    },
+    {
+      "path": "tsconfig.json",
+      "lines_added": 24,
+      "lines_removed": 0,
+      "diff": "+ strict, @/* paths, prisma/seed.ts in include"
+    },
+    {
+      "path": "tailwind.config.ts",
+      "lines_added": 13,
+      "lines_removed": 0,
+      "diff": "+ content paths, default theme"
+    },
+    {
+      "path": "postcss.config.js",
+      "lines_added": 6,
+      "lines_removed": 0,
+      "diff": "+ tailwindcss + autoprefixer plugins"
+    },
+    {
+      "path": "next-env.d.ts",
+      "lines_added": 4,
+      "lines_removed": 0,
+      "diff": "+ /// <reference types=\"next\" />"
+    },
+    {
+      "path": "package.json",
+      "lines_added": 4,
+      "lines_removed": 1,
+      "diff": "build now runs prisma generate; added typecheck, postinstall, db:generate, --env-file on db:seed"
+    },
+    {
+      "path": "prisma/seed.ts",
+      "lines_added": 175,
+      "lines_removed": 0,
+      "diff": "+ 3 tasks, 2 runs (one with full auditJson), 4 memory entries; idempotent reset"
+    },
+    {
+      "path": "src/lib/db.ts",
+      "lines_added": 16,
+      "lines_removed": 0,
+      "diff": "+ singleton PrismaClient on globalThis to survive Next dev hot-reload"
+    },
+    {
+      "path": "src/app/api/tasks/route.ts",
+      "lines_added": 50,
+      "lines_removed": 30,
+      "diff": "Replaced inMemoryTasks with Prisma; GET supports ?repo= filter; includes latest run + edits/inspections; error envelopes returned"
+    },
+    {
+      "path": "src/app/api/tasks/[id]/route.ts",
+      "lines_added": 90,
+      "lines_removed": 0,
+      "diff": "+ GET (single + runs), PATCH (title/branch), DELETE (transactional cascade since SQLite lacks ON DELETE CASCADE)"
+    },
+    {
+      "path": "src/app/api/runs/route.ts",
+      "lines_added": 130,
+      "lines_removed": 60,
+      "diff": "Replaced inMemoryRuns/inMemoryMemory; supports start + upload_audit; upserts MemoryEntry by patternHash; resolves missing run id by creating one on the fly"
+    },
+    {
+      "path": "src/app/api/runs/[id]/route.ts",
+      "lines_added": 50,
+      "lines_removed": 0,
+      "diff": "+ GET single run; rebuilds AuditReport from stored auditJson; returns generated focusedRerunPrompt"
+    },
+    {
+      "path": "src/app/api/memory/route.ts",
+      "lines_added": 90,
+      "lines_removed": 20,
+      "diff": "Replaced inMemoryMemory with Prisma; preserves format=summary and ?prompt= behaviors; POST record_outcome updates success rate"
+    },
+    {
+      "path": "src/app/api/outcomes/route.ts",
+      "lines_added": 80,
+      "lines_removed": 0,
+      "diff": "+ POST accept/reject/modified/rerun; creates Outcome row + adjusts MemoryEntry success rate for the run's task type"
+    },
+    {
+      "path": "src/app/layout.tsx",
+      "lines_added": 32,
+      "lines_removed": 0,
+      "diff": "+ Root layout with IBM Plex Mono via next/font/google; dark background; metadata"
+    },
+    {
+      "path": "src/app/page.tsx",
+      "lines_added": 6,
+      "lines_removed": 0,
+      "diff": "+ Mounts <OpsTwin />"
+    },
+    {
+      "path": "src/app/globals.css",
+      "lines_added": 88,
+      "lines_removed": 0,
+      "diff": "+ CSS reset, scrollbar, @keyframes pulse + shimmer + fadeIn, .opstwin-skeleton helper"
+    },
+    {
+      "path": "src/components/OpsTwin.tsx",
+      "lines_added": 1100,
+      "lines_removed": 0,
+      "diff": "+ Full dashboard: Dashboard / AuditView / MemoryView / NewTaskModal / PromptModal / Toast — all wired to /api/* with loading skeletons and error toasts"
+    },
+    {
+      "path": "src/app/upload/page.tsx",
+      "lines_added": 425,
+      "lines_removed": 0,
+      "diff": "+ Drag-and-drop .json uploader, validates run_id + files_changed, POSTs to /api/runs upload_audit, renders mismatches + copy focused-rerun-prompt button"
+    },
+    {
+      "path": "Dockerfile",
+      "lines_added": 55,
+      "lines_removed": 0,
+      "diff": "+ 3-stage build (deps/builder/runner), non-root nextjs user, smart entrypoint"
+    },
+    {
+      "path": ".dockerignore",
+      "lines_added": 11,
+      "lines_removed": 0,
+      "diff": "+ node_modules, .next, prisma/dev.db, .env.local"
+    },
+    {
+      "path": "docker-compose.yml",
+      "lines_added": 22,
+      "lines_removed": 0,
+      "diff": "+ opstwin service on :3000 with persistent SQLite volume"
+    },
+    {
+      "path": "docker-entrypoint.sh",
+      "lines_added": 30,
+      "lines_removed": 0,
+      "diff": "+ db push + conditional seed (only if Task table empty)"
+    },
+    {
+      "path": "public/.gitkeep",
+      "lines_added": 1,
+      "lines_removed": 0,
+      "diff": "+ placeholder so Dockerfile COPY public works"
+    }
+  ],
+  "files_inspected": [
+    { "path": ".cursor/rules.mdc", "touched": false, "reason": "rules only — read for compliance" },
+    { "path": ".cursor/skills.md", "touched": false, "reason": "skills reference — read for compliance" },
+    { "path": "README.md", "touched": false, "reason": "documentation accurately matches the wiring delivered" },
+    { "path": "src/types/index.ts", "touched": false, "reason": "do-not-touch constraint in task" },
+    { "path": "src/lib/audit-parser.ts", "touched": false, "reason": "do-not-touch constraint; only imported" },
+    { "path": "src/lib/memory-engine.ts", "touched": false, "reason": "do-not-touch constraint; only imported" },
+    { "path": "prisma/schema.prisma", "touched": false, "reason": "already set provider=sqlite, no edit required" },
+    { "path": "vercel.json", "touched": false, "reason": "production deploy config out of scope for local MVP" },
+    { "path": ".env.example", "touched": false, "reason": "example file unchanged; .env / .env.local created instead" },
+    { "path": "opstwin-ui.jsx", "touched": false, "reason": "original mockup, replaced by src/components/OpsTwin.tsx" },
+    { "path": "opstwin-architecture.html", "touched": false, "reason": "documentation diagram, not used by the app" }
+  ],
+  "files_skipped": [
+    { "path": "src/types/index.ts", "reason": "do-not-touch constraint" },
+    { "path": "src/lib/audit-parser.ts", "reason": "do-not-touch constraint" },
+    { "path": "src/lib/memory-engine.ts", "reason": "do-not-touch constraint" },
+    { "path": "opstwin-ui.jsx", "reason": "superseded by the new TypeScript component; left in repo for reference" },
+    { "path": "opstwin-architecture.html", "reason": "static doc, out of scope for wiring" },
+    { "path": "vercel.json", "reason": "deploy config; not needed for local MVP per task instructions" },
+    { "path": "tests/**", "reason": "no test framework was installed; task explicitly skipped auth/tests for MVP" }
+  ],
+  "todos_left": [
+    {
+      "file": "src/app/api/memory/route.ts",
+      "line": 78,
+      "reason": "record_outcome currently keys memory entries by task type extracted from the run's prompt. A future iteration should key by the exact patternHash that was created during upload_audit for tighter correlation.",
+      "suggested_fix": "Persist patternHash on CursorRun (add a column or derive deterministically) and look up MemoryEntry by patternHash in POST /api/outcomes."
+    },
+    {
+      "file": "src/app/upload/page.tsx",
+      "line": 80,
+      "reason": "Audit JSON validation is minimal (only run_id + files_changed). Full RawRunJson schema validation could surface bad uploads earlier.",
+      "suggested_fix": "Add a zod schema mirroring RawRunJson and run it client-side before POST."
+    }
+  ],
+  "expected_changes": "OpsTwin runs locally on http://localhost:3000 against SQLite. UI loads seeded tasks + memory. POSTing a Cursor audit JSON to /api/runs returns an AuditReport with mismatches and a focused rerun prompt. Buttons are wired to real endpoints.",
+  "tests_run": [
+    { "name": "npx tsc --noEmit", "status": "pass", "output": "exit 0, zero errors" },
+    { "name": "npm run build", "status": "pass", "output": "Compiled successfully — 5 static pages + 6 dynamic routes" },
+    { "name": "npx prisma db push", "status": "pass", "output": "schema synced; SQLite dev.db created" },
+    { "name": "npm run db:seed", "status": "pass", "output": "3 tasks, 2 runs, 4 memory entries inserted" },
+    { "name": "GET /api/tasks", "status": "pass", "output": "HTTP 200 — returns seeded tasks with their latest runs and file edits" },
+    { "name": "POST /api/tasks", "status": "pass", "output": "HTTP 201 — task created" },
+    { "name": "PATCH /api/tasks/:id", "status": "pass", "output": "HTTP 200 — title updated" },
+    { "name": "DELETE /api/tasks/:id", "status": "pass", "output": "HTTP 200 — task + dependent rows removed" },
+    { "name": "POST /api/runs upload_audit", "status": "pass", "output": "HTTP 200 — report.mismatches contains blocker for failing test, warning for low confidence; focusedRerunPrompt generated; MemoryEntry upserted" },
+    { "name": "GET /api/runs/:id", "status": "pass", "output": "HTTP 200 — rebuilt report from auditJson + same focusedRerunPrompt" },
+    { "name": "POST /api/outcomes", "status": "pass", "output": "HTTP 201 — outcome row created; MemoryEntry success rate adjusted" },
+    { "name": "GET /api/memory", "status": "pass", "output": "HTTP 200 — 4 seeded entries + new feature entry from upload_audit" },
+    { "name": "GET /", "status": "pass", "output": "HTTP 200 — OpsTwin shell SSRs correctly" },
+    { "name": "GET /upload", "status": "pass", "output": "HTTP 200 — upload page SSRs correctly" },
+    { "name": "docker build -t opstwin:latest .", "status": "pass", "output": "image built successfully (3-stage, prisma generated, next build green)" },
+    { "name": "docker run opstwin:latest", "status": "pass", "output": "container booted, db push + seed ran, GET /api/tasks returned HTTP 200" }
+  ],
+  "decision_trace": [
+    {
+      "file": "src/lib/db.ts",
+      "decision": "Cached PrismaClient on globalThis only in non-production to avoid leaking many clients during Next.js hot reload while keeping production single-instance per server."
+    },
+    {
+      "file": "src/app/api/runs/route.ts",
+      "decision": "upload_audit now upserts the run by id (instead of just looking it up) so a Cursor-produced last_run.json can be ingested without a prior /api/runs start call — the upload page exercises exactly this path."
+    },
+    {
+      "file": "src/app/api/runs/route.ts",
+      "decision": "MemoryEntry is upserted by patternHash (which is @unique in the schema) — preserves the seeded entries while accumulating new patterns."
+    },
+    {
+      "file": "src/app/api/tasks/[id]/route.ts",
+      "decision": "DELETE walks the dependency graph in a $transaction because SQLite + Prisma do not honor cascading deletes without explicit onDelete annotations, and the schema was off-limits."
+    },
+    {
+      "file": "src/app/layout.tsx",
+      "decision": "Used next/font/google for IBM Plex Mono so the font is self-hosted from .next/static (no FOUT, no external request) per Next 14 best practices."
+    },
+    {
+      "file": "src/components/OpsTwin.tsx",
+      "decision": "Kept inline styles only (no Tailwind classes, no shadcn) per the task constraint. Skeleton uses a CSS class + @keyframes shimmer so it animates without JS."
+    },
+    {
+      "file": "src/app/upload/page.tsx",
+      "decision": "Validation happens locally before the POST so bad files do not hit the API. The API still enforces shape via zod, so this is purely UX."
+    },
+    {
+      "file": "Dockerfile + docker-entrypoint.sh",
+      "decision": "Added because the user said 'I have docker installed and running please use that'. Entrypoint counts Task rows (not file size) before seeding — survives volume restarts without wiping user data."
+    },
+    {
+      "file": ".env",
+      "decision": "Prisma CLI only reads .env (not .env.local). Created both: .env for prisma/next at build, .env.local for runtime. db:seed script passes --env-file=.env to tsx for the same reason."
+    },
+    {
+      "file": "tsconfig.json",
+      "decision": "Included prisma/seed.ts in the include list so npx tsc --noEmit covers it; strict mode is on without any new any usages."
+    }
+  ],
+  "next_steps": [
+    "Stop the existing process holding port 3000 (or accept the auto-fallback to 3001) so `npm run dev` binds the default port.",
+    "Run `npm run dev` and visit http://localhost:3000 — dashboard should list 3 seeded tasks.",
+    "Click any task with a partial status to verify the audit view loads its real AuditReport, then exercise Accept / Reject / Create Focused Rerun.",
+    "Drag the example file at .ops/runs/example/last_run.json onto /upload to verify the mismatch parsing + clipboard copy.",
+    "For container deploy: `docker compose up --build` then visit http://localhost:3000. SQLite persists in the opstwin-data volume.",
+    "For production: switch prisma/schema.prisma provider to postgresql and point DATABASE_URL at Neon/Supabase, then `npm run db:push`.",
+    "Wire the future patternHash-on-run improvement noted in todos_left so /api/outcomes updates the exact entry it created."
+  ],
+  "blockers": []
+}

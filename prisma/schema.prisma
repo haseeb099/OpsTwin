@@ -1,0 +1,90 @@
+// prisma/schema.prisma
+// OpsTwin — Full database schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Task {
+  id             String      @id @default(cuid())
+  user           String
+  repo           String
+  branch         String
+  originalPrompt String
+  title          String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  runs           CursorRun[]
+}
+
+model CursorRun {
+  id             String          @id @default(cuid())
+  taskId         String
+  task           Task            @relation(fields: [taskId], references: [id])
+  startedAt      DateTime        @default(now())
+  finishedAt     DateTime?
+  status         String          @default("running")  // running|complete|failed|partial
+  confidence     String?         // high|medium|low
+  branch         String
+  cursorVersion  String?
+  fileEdits      FileEdit[]
+  inspectedFiles InspectedFile[]
+  expectations   Expectation?
+  outcomes       Outcome[]
+  auditJson      String?         // full JSON blob of the .ops/runs/<id>/last_run.json
+}
+
+model FileEdit {
+  id           String    @id @default(cuid())
+  runId        String
+  run          CursorRun @relation(fields: [runId], references: [id])
+  path         String
+  diff         String
+  linesAdded   Int       @default(0)
+  linesRemoved Int       @default(0)
+}
+
+model InspectedFile {
+  id      String    @id @default(cuid())
+  runId   String
+  run     CursorRun @relation(fields: [runId], references: [id])
+  path    String
+  reason  String
+  touched Boolean   @default(false)
+}
+
+model Expectation {
+  id              String    @id @default(cuid())
+  runId           String    @unique
+  run             CursorRun @relation(fields: [runId], references: [id])
+  expectedFiles   String    // JSON array
+  expectedChanges String
+  expectedTests   String    // JSON array
+}
+
+model Outcome {
+  id           String    @id @default(cuid())
+  runId        String
+  run          CursorRun @relation(fields: [runId], references: [id])
+  action       String    // accepted|rejected|modified|rerun
+  userFeedback String?
+  timeToFixMs  Int?
+  acceptedAt   DateTime  @default(now())
+}
+
+model MemoryEntry {
+  id                    String   @id @default(cuid())
+  taskType              String
+  patternHash           String   @unique
+  outcomeSummary        String
+  improvementSuggestion String
+  reuseCount            Int      @default(0)
+  successRate           Float    @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}

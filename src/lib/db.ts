@@ -1,0 +1,19 @@
+// src/lib/db.ts
+// Singleton Prisma client — prevents exhausting the connection pool during
+// Next.js dev hot-reload, where every reload would otherwise spawn a new client.
+
+import { PrismaClient } from '@prisma/client'
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined
+}
+
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+  })
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma
+}
