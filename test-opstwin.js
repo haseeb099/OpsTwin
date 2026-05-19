@@ -1,0 +1,283 @@
+// test-opstwin.js — Zero-dependency end-to-end test for the OpsTwin API
+// Run with: node test-opstwin.js
+
+const http = require('http')
+const https = require('https')
+
+// ── ANSI colours ─────────────────────────────────────────────────────────────
+const GREEN  = '\x1b[32m'
+const RED    = '\x1b[31m'
+const YELLOW = '\x1b[33m'
+const CYAN   = '\x1b[36m'
+const RESET  = '\x1b[0m'
+const BOLD   = '\x1b[1m'
+
+// ── HTTP helpers ──────────────────────────────────────────────────────────────
+function request(method, url, body) {
+  return new Promise((resolve, reject) => {
+    const parsed   = new URL(url)
+    const lib      = parsed.protocol === 'https:' ? https : http
+    const bodyStr  = body ? JSON.stringify(body) : null
+    const options  = {
+      hostname : parsed.hostname,
+      port     : parsed.port,
+      path     : parsed.pathname + parsed.search,
+      method,
+      headers  : {
+        'Content-Type': 'application/json',
+        ...(bodyStr ? { 'Content-Length': Buffer.byteLength(bodyStr) } : {}),
+      },
+    }
+    const req = lib.request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => (data += chunk))
+      res.on('end', () => {
+        let json
+        try { json = JSON.parse(data) } catch { json = { _raw: data } }
+        resolve({ status: res.statusCode, body: json })
+      })
+    })
+    req.on('error', reject)
+    if (bodyStr) req.write(bodyStr)
+    req.end()
+  })
+}
+
+// Quick ping — check that the server responds with valid JSON from the API
+async function ping(base) {
+  try {
+    const r = await request('GET', `${base}/api/tasks`)
+    // Must be a successful JSON response (not a 404 HTML page from a non-API server)
+    return r.status === 200 && Array.isArray(r.body?.tasks)
+  } catch {
+    return false
+  }
+}
+
+// ── Test runner ───────────────────────────────────────────────────────────────
+const results = []
+
+async function test(label, fn) {
+  try {
+    const detail = await fn()
+    results.push({ label, pass: true })
+    console.log(`  ${GREEN}${BOLD}PASS${RESET}  ${label}`)
+    return detail
+  } catch (err) {
+    results.push({ label, pass: false, error: err.message })
+    console.log(`  ${RED}${BOLD}FAIL${RESET}  ${label}`)
+    console.log(`        ${RED}↳ ${err.message}${RESET}`)
+    return null
+  }
+}
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg)
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+async function main() {
+  console.log(`\n${CYAN}${BOLD}OpsTwin E2E Test Suite${RESET}`)
+  console.log('─'.repeat(42))
+
+  // 1. Detect server
+  console.log(`\n${YELLOW}Detecting server …${RESET}`)
+  let BASE = null
+  for (const port of [3000, 3001, 3002]) {
+    process.stdout.write(`  Trying http://localhost:${port} … `)
+    if (await ping(`http://localhost:${port}`)) {
+      BASE = `http://localhost:${port}`
+      console.log(`${GREEN}OK${RESET}`)
+      break
+    }
+    console.log(`${RED}no response${RESET}`)
+  }
+  if (!BASE) {
+    console.error(`\n${RED}${BOLD}ERROR: No server found on ports 3000/3001/3002.${RESET}`)
+    console.error('  Start the dev server with: npm run dev')
+    process.exit(1)
+  }
+  console.log(`  Using ${CYAN}${BASE}${RESET}\n`)
+
+  // Check for DB errors early
+  const probe = await request('GET', `${BASE}/api/tasks`)
+  if (probe.status === 500 && JSON.stringify(probe.body).toLowerCase().includes('prisma')) {
+    console.log(`${YELLOW}Detected Prisma error — running npm run db:push …${RESET}`)
+    const { execSync } = require('child_process')
+    try {
+      execSync('npm run db:push', { stdio: 'inherit', cwd: __dirname })
+      console.log(`${GREEN}db:push succeeded — retrying tests\n${RESET}`)
+    } catch {
+      console.error(`${RED}db:push failed. Please run it manually.${RESET}`)
+      process.exit(1)
+    }
+  }
+
+  // Shared state
+  let taskId, runId, auditRunId
+
+  // ── Tests ─────────────────────────────────────────────────────────────────
+
+  console.log('Running tests …\n')
+
+  // 1. POST /api/tasks — create
+  await test('POST /api/tasks (create)', async () => {
+    const r = await request('POST', `${BASE}/api/tasks`, {
+      user          : 'opstwin-test',
+      title         : 'OpsTwin Self-Test',
+      repo          : 'opstwin/test',
+      branch        : 'main',
+      originalPrompt: 'refactor payment service for testing',
+    })
+    assert(r.status === 201, `Expected 201, got ${r.status} — ${JSON.stringify(r.body)}`)
+    assert(r.body.task?.id, 'Response missing task.id')
+    taskId = r.body.task.id
+    return r.body.task
+  })
+
+  // 2. GET /api/tasks — list
+  await test('GET  /api/tasks (list)', async () => {
+    assert(taskId, 'Skipped — no taskId from create step')
+    const r = await request('GET', `${BASE}/api/tasks`)
+    assert(r.status === 200, `Expected 200, got ${r.status} — ${JSON.stringify(r.body)}`)
+    assert(Array.isArray(r.body.tasks), 'Response missing tasks array')
+    const found = r.body.tasks.find((t) => t.id === taskId)
+    assert(found, `Task ${taskId} not found in list (got ${r.body.tasks.length} tasks)`)
+    return found
+  })
+
+  // 3. POST /api/runs — start
+  await test('POST /api/runs (start)', async () => {
+    assert(taskId, 'Skipped — no taskId from create step')
+    const r = await request('POST', `${BASE}/api/runs`, {
+      action : 'start',
+      taskId,
+      branch : 'ops/test-20260519',
+    })
+    assert(r.status === 201, `Expected 201, got ${r.status} — ${JSON.stringify(r.body)}`)
+    assert(r.body.run?.id, 'Response missing run.id')
+    runId = r.body.run.id
+    return r.body.run
+  })
+
+  // 4. POST /api/runs — upload_audit
+  await test('POST /api/runs (upload_audit)', async () => {
+    assert(taskId, 'Skipped — no taskId from create step')
+    const auditJson = {
+      run_id           : runId ?? 'run_test_001',
+      timestamp        : new Date().toISOString(),
+      original_prompt  : 'refactor payment service for testing',
+      branch           : 'ops/test-20260519',
+      confidence       : 'medium',
+      files_changed    : [
+        {
+          path         : 'src/services/payment.ts',
+          lines_added  : 45,
+          lines_removed: 12,
+          diff         : '+ idempotencyKey: generateKey()',
+        },
+      ],
+      files_inspected  : [
+        { path: 'src/lib/stripe.ts', touched: false, reason: 'do-not-touch constraint' },
+      ],
+      files_skipped    : [
+        { path: 'prisma/schema.prisma', reason: 'do-not-touch constraint' },
+      ],
+      todos_left       : [
+        {
+          file         : 'src/services/payment.ts',
+          line         : 78,
+          reason       : 'Refund flow not updated',
+          suggested_fix: 'Update RefundParams to include reason field',
+        },
+      ],
+      tests_run        : [
+        { name: 'payment.test.ts > createPayment', status: 'pass' },
+        { name: 'typecheck', status: 'fail', output: 'payment.ts:78 — Type error' },
+      ],
+      decision_trace   : [
+        { file: 'src/services/payment.ts', decision: 'Added idempotency key to prevent duplicate charges' },
+      ],
+      next_steps       : ['Fix typecheck error', 'Run full test suite'],
+      blockers         : ['typecheck failure must resolve before merge'],
+      rules_read       : ['.cursor/rules.mdc'],
+      skills_used      : ['audit-log', 'bounded-task', 'test-first-check'],
+    }
+
+    const r = await request('POST', `${BASE}/api/runs`, {
+      action   : 'upload_audit',
+      runId    : runId ?? undefined,
+      taskId,
+      auditJson,
+    })
+    assert(r.status === 200, `Expected 200, got ${r.status} — ${JSON.stringify(r.body)}`)
+    assert(r.body.run?.id, 'Response missing run.id')
+    assert(r.body.report, 'Response missing report')
+    auditRunId = r.body.run.id
+    return r.body
+  })
+
+  // 5. GET /api/runs/:id
+  await test('GET  /api/runs/:id', async () => {
+    const id = auditRunId ?? runId
+    assert(id, 'Skipped — no runId from previous steps')
+    const r = await request('GET', `${BASE}/api/runs/${id}`)
+    assert(r.status === 200, `Expected 200, got ${r.status} — ${JSON.stringify(r.body)}`)
+    assert(r.body.run, 'Response missing run')
+    assert(r.body.report, 'Response missing report')
+    // focusedRerunPrompt may be null (if no mismatches) but key should exist
+    assert('focusedRerunPrompt' in r.body, 'Response missing focusedRerunPrompt key')
+    return r.body
+  })
+
+  // 6. GET /api/memory
+  await test('GET  /api/memory', async () => {
+    const r = await request('GET', `${BASE}/api/memory`)
+    assert(r.status === 200, `Expected 200, got ${r.status} — ${JSON.stringify(r.body)}`)
+    assert(Array.isArray(r.body.entries), 'Response missing entries array')
+    assert(r.body.entries.length > 0, `Memory is empty — expected at least 1 entry after upload_audit`)
+    return r.body.entries
+  })
+
+  // 7. POST /api/outcomes
+  await test('POST /api/outcomes', async () => {
+    const id = auditRunId ?? runId
+    assert(id, 'Skipped — no runId from previous steps')
+    const r = await request('POST', `${BASE}/api/outcomes`, {
+      runId       : id,
+      action      : 'accepted',
+      userFeedback: 'All good — self-test passed',
+      timeToFixMs : 0,
+    })
+    assert(r.status === 201, `Expected 201, got ${r.status} — ${JSON.stringify(r.body)}`)
+    assert(r.body.outcome?.id, 'Response missing outcome.id')
+    return r.body.outcome
+  })
+
+  // ── Summary ───────────────────────────────────────────────────────────────
+  const passed = results.filter((r) => r.pass).length
+  const total  = results.length
+
+  console.log(`\n${'='.repeat(42)}`)
+  console.log(` ${BOLD}OpsTwin Test Results${RESET}`)
+  console.log('='.repeat(42))
+  for (const r of results) {
+    const tag = r.pass
+      ? `${GREEN}${BOLD} PASS ${RESET}`
+      : `${RED}${BOLD} FAIL ${RESET}`
+    const lbl = r.label.padEnd(35)
+    const err = r.pass ? '' : `  ${RED}↳ ${r.error}${RESET}`
+    console.log(` ${tag} ${lbl}${err}`)
+  }
+  console.log('='.repeat(42))
+  const colour = passed === total ? GREEN : RED
+  console.log(` ${colour}${BOLD}${passed}/${total} tests passed${RESET}`)
+  console.log('='.repeat(42) + '\n')
+
+  if (passed < total) process.exit(1)
+}
+
+main().catch((err) => {
+  console.error(`\n${RED}Unhandled error: ${err.message}${RESET}`)
+  process.exit(1)
+})

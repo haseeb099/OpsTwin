@@ -1722,6 +1722,14 @@ function AuditView({
         </>
       )}
 
+      {!loading && !report && latestRun && (
+        <div style={{ background: C.bgCard, border: `1px dashed ${C.border}`, borderRadius: 8, padding: 24, color: C.textMuted, fontSize: 13 }}>
+          No audit data yet for this run. Upload a <code style={{ color: C.accent }}>last_run.json</code> via the{' '}
+          <a href="/upload" style={{ color: C.accent }}>Upload page</a> or use{' '}
+          <code style={{ color: C.accent }}>node opstwin-cli.js upload</code>.
+        </div>
+      )}
+
       {showPrompt && focusedPrompt && (
         <PromptModal
           prompt={focusedPrompt}
