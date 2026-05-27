@@ -1,56 +1,13 @@
 # OpsTwin Cursor Rules
+# Cursor reads this automatically. Canonical rules live in .opstwin/rules.md (all agents).
 # Every run MUST produce a structured audit log at .ops/runs/<run_id>/last_run.json
 
 ## MANDATORY AUDIT OUTPUT
-After EVERY task, write `.ops/runs/<run_id>/last_run.json` with this exact schema:
-```json
-{
-  "run_id": "<uuid>",
-  "timestamp": "<ISO8601>",
-  "original_prompt": "<exact prompt given>",
-  "branch": "ops/<task-slug>-<timestamp>",
-  "confidence": "high|medium|low",
-  "files_changed": [
-    { "path": "...", "lines_added": 0, "lines_removed": 0, "diff": "..." }
-  ],
-  "files_inspected": [
-    { "path": "...", "touched": false, "reason": "no matching pattern" }
-  ],
-  "files_skipped": [
-    { "path": "...", "reason": "do-not-touch rule / out of scope / no pattern" }
-  ],
-  "todos_left": [
-    { "file": "...", "line": 0, "reason": "..." }
-  ],
-  "expected_changes": "...",
-  "tests_run": [
-    { "name": "...", "status": "pass|fail|skipped", "output": "..." }
-  ],
-  "decision_trace": [
-    { "file": "...", "decision": "why this edit was made" }
-  ],
-  "next_steps": ["step 1", "step 2"],
-  "blockers": [],
-  "rules_read": ["<list of .cursor/ rule files that applied>"],
-  "skills_used": ["<skill names from skills.md used>"]
-}
-```
+After EVERY task, write `.ops/runs/<run_id>/last_run.json` per `.opstwin/rules.md`.
+Set `"agent": "cursor"` in the JSON.
 
-## BRANCH RULES
-- Always create branch: `ops/<kebab-task-title>-<YYYYMMDD-HHMM>`
-- NEVER push to main automatically
-- Commit .ops/runs/<run_id>/ along with code changes
-
-## SCOPE RULES
-- Do not change backend contracts unless explicitly asked
-- Add minimal unit tests for every changed function
-- Stop after first working version — don't over-engineer
-- Leave TODO comments with one-line reason for anything unfinished
-
-## SAFETY
-- Run lint + typecheck before marking task complete
-- If confidence is "low", add a blocker to next_steps
-- Do not delete files without explicit instruction
+See `.opstwin/rules.md` for the full schema, branch rules, scope rules, and safety checks.
+See `.opstwin/skills.md` for named skills (audit-log, branch-safety, bounded-task, etc.).
 
 ## PROMPT TEMPLATE
 When given a task, structure your approach:

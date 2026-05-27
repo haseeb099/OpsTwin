@@ -26,6 +26,7 @@ const https = require('https');
 
 const BASE_URL = (process.env.OPSTWIN_URL || 'http://localhost:3000').replace(/\/$/, '');
 const DEFAULT_TASK_ID = process.env.OPSTWIN_TASK_ID || '';
+const API_KEY = process.env.OPSTWIN_API_KEY || '';
 
 // ── HTTP helper ──────────────────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ function request(url, method = 'GET', body = null) {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        ...(API_KEY ? { 'X-OpsTwin-Key': API_KEY } : {}),
         ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
       },
     };
@@ -151,6 +153,21 @@ async function uploadFile(filePath, taskId, quiet = false) {
   } catch (err) {
     console.error(`[opstwin] Failed to parse JSON from ${abs}: ${err.message}`);
     return;
+  }
+
+  // Merge terminal capture if present
+  const terminalFile = path.join(process.cwd(), '.ops', 'terminal', 'latest.json');
+  if (fs.existsSync(terminalFile)) {
+    try {
+      const term = JSON.parse(fs.readFileSync(terminalFile, 'utf8'));
+      auditJson.terminal_output = auditJson.terminal_output || [];
+      auditJson.terminal_output.push({
+        command: term.command,
+        exit_code: term.exit_code ?? term.exitCode ?? 1,
+        stdout: (term.stdout || '').slice(0, 10000),
+        stderr: (term.stderr || '').slice(0, 10000),
+      });
+    } catch { /* ignore */ }
   }
 
   const effectiveTaskId = taskId || DEFAULT_TASK_ID || auditJson.taskId;
@@ -323,6 +340,134 @@ async function cmdMemory() {
   });
 }
 
+/**
+ * run — Execute a shell command and save output to .ops/terminal/latest.json
+ */
+function cmdRun(args) {
+  if (!args.length) {
+    console.error('[opstwin] Usage: node opstwin-cli.js run <command...>');
+    process.exit(1);
+  }
+  const { execSync } = require('child_process');
+  const command = args.join(' ');
+  let stdout = '';
+  let stderr = '';
+  let exitCode = 0;
+  try {
+    stdout = execSync(command, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], shell: true });
+  } catch (err) {
+    exitCode = err.status ?? 1;
+    stdout = err.stdout || '';
+    stderr = err.stderr || err.message || '';
+  }
+  const terminalDir = path.join(process.cwd(), '.ops', 'terminal');
+  fs.mkdirSync(terminalDir, { recursive: true });
+  const payload = {
+    command,
+    exit_code: exitCode,
+    stdout: stdout.slice(0, 50000),
+    stderr: stderr.slice(0, 50000),
+    capturedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(path.join(terminalDir, 'latest.json'), JSON.stringify(payload, null, 2));
+  console.log(`[opstwin] exit=${exitCode}  saved → .ops/terminal/latest.json`);
+  if (stdout) process.stdout.write(stdout);
+  if (stderr) process.stderr.write(stderr);
+  process.exit(exitCode);
+}
+
+/**
+ * dispatch — Fetch approved prompt and write to .ops/dispatch/pending-prompt.md
+ */
+async function cmdDispatch(proposalId) {
+  if (!proposalId) {
+    console.error('[opstwin] Usage: node opstwin-cli.js dispatch <proposalId>');
+    process.exit(1);
+  }
+  let res;
+  try {
+    res = await request(`${BASE_URL}/api/prompts/${encodeURIComponent(proposalId)}/dispatch`, 'POST');
+  } catch (err) {
+    console.error(`[opstwin] Network error: ${err.message}`);
+    process.exit(1);
+  }
+  if (res.status !== 200) {
+    console.error(`[opstwin] HTTP ${res.status}:`, JSON.stringify(res.body));
+    process.exit(1);
+  }
+  const prompt = res.body?.prompt;
+  if (!prompt) {
+    console.error('[opstwin] No prompt in response');
+    process.exit(1);
+  }
+  const dispatchDir = path.join(process.cwd(), '.ops', 'dispatch');
+  fs.mkdirSync(dispatchDir, { recursive: true });
+  const primary = path.join(dispatchDir, 'pending-prompt.md');
+  fs.writeFileSync(primary, prompt, 'utf8');
+  console.log(`[opstwin] ✓ Dispatched → ${primary}`);
+  const cursorDir = path.join(process.cwd(), '.cursor');
+  if (fs.existsSync(cursorDir)) {
+    fs.writeFileSync(path.join(cursorDir, 'pending-task.md'), prompt, 'utf8');
+    console.log('[opstwin] ✓ Also written → .cursor/pending-task.md');
+  }
+  console.log('[opstwin] Agent will read pending-prompt.md per .opstwin/rules.md');
+}
+
+/**
+ * terminal — Upload .ops/terminal/latest.json to a run
+ */
+async function cmdTerminalUpload(runId) {
+  if (!runId) {
+    console.error('[opstwin] Usage: node opstwin-cli.js terminal <runId>');
+    process.exit(1);
+  }
+  const terminalFile = path.join(process.cwd(), '.ops', 'terminal', 'latest.json');
+  if (!fs.existsSync(terminalFile)) {
+    console.error('[opstwin] No .ops/terminal/latest.json — run: node opstwin-cli.js run npm test');
+    process.exit(1);
+  }
+  const term = JSON.parse(fs.readFileSync(terminalFile, 'utf8'));
+  const res = await request(`${BASE_URL}/api/runs/${encodeURIComponent(runId)}/terminal`, 'POST', {
+    command: term.command,
+    exitCode: term.exit_code ?? term.exitCode ?? 0,
+    stdout: term.stdout || '',
+    stderr: term.stderr || '',
+  });
+  if (res.status >= 200 && res.status < 300) {
+    console.log('[opstwin] ✓ Terminal log uploaded');
+  } else {
+    console.error(`[opstwin] ✗ HTTP ${res.status}:`, JSON.stringify(res.body));
+  }
+}
+
+/**
+ * screenshot — Upload a PNG/JPG to a run
+ */
+async function cmdScreenshot(runId, filePath, label) {
+  if (!runId || !filePath) {
+    console.error('[opstwin] Usage: node opstwin-cli.js screenshot <runId> <image-file> [label]');
+    process.exit(1);
+  }
+  const abs = path.resolve(filePath);
+  if (!fs.existsSync(abs)) {
+    console.error(`[opstwin] File not found: ${abs}`);
+    process.exit(1);
+  }
+  const ext = path.extname(abs).toLowerCase();
+  const mime = ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+  const b64 = fs.readFileSync(abs).toString('base64');
+  const dataUrl = `data:${mime};base64,${b64}`;
+  const res = await request(`${BASE_URL}/api/runs/${encodeURIComponent(runId)}/screenshots`, 'POST', {
+    label: label || path.basename(abs),
+    dataUrl,
+  });
+  if (res.status >= 200 && res.status < 300) {
+    console.log('[opstwin] ✓ Screenshot uploaded');
+  } else {
+    console.error(`[opstwin] ✗ HTTP ${res.status}:`, JSON.stringify(res.body));
+  }
+}
+
 // ── Help ──────────────────────────────────────────────────────────────────────
 
 function printHelp() {
@@ -335,17 +480,22 @@ Usage:
   node opstwin-cli.js status [taskId]         Show last run status for a task
   node opstwin-cli.js rerun  [taskId]         Print focusedRerunPrompt for the last run
   node opstwin-cli.js memory                  Show top 5 memory entries
+  node opstwin-cli.js dispatch <proposalId>   Write approved prompt to .ops/dispatch/
+  node opstwin-cli.js run <command...>        Run command, save to .ops/terminal/
+  node opstwin-cli.js terminal <runId>        Upload terminal log to a run
+  node opstwin-cli.js screenshot <runId> <file> [label]  Upload UI screenshot
   node opstwin-cli.js help                    Show this help
 
 Environment variables:
   OPSTWIN_URL      Base URL  (default: http://localhost:3000)
   OPSTWIN_TASK_ID  Default task ID when not passed as a CLI argument
+  OPSTWIN_API_KEY  API key if server auth is enabled
 `.trim());
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-const [,, cmd, arg1, arg2] = process.argv;
+const [,, cmd, arg1, arg2, ...rest] = process.argv;
 
 (async () => {
   switch (cmd) {
@@ -371,6 +521,22 @@ const [,, cmd, arg1, arg2] = process.argv;
 
     case 'memory':
       await cmdMemory();
+      break;
+
+    case 'dispatch':
+      await cmdDispatch(arg1);
+      break;
+
+    case 'run':
+      cmdRun([arg1, arg2, ...rest].filter(Boolean));
+      break;
+
+    case 'terminal':
+      await cmdTerminalUpload(arg1);
+      break;
+
+    case 'screenshot':
+      await cmdScreenshot(arg1, arg2, rest.join(' ') || undefined);
       break;
 
     case 'help':

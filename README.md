@@ -1,6 +1,8 @@
-# OpsTwin — Cursor Execution Audit System
+# OpsTwin — AI Agent Execution Audit System
 
-> Tracks exactly what Cursor did, what it left, why — and learns from every run.
+> Tracks exactly what your coding agent did, what it left, why — and learns from every run.
+
+**Works with any coding agent:** Cursor, Claude Code, Gemini, GitHub Copilot, OpenAI Codex, Windsurf, Cline, Gravity, Continue, and any tool that can edit files and follow project instructions.
 
 ![Next.js 14](https://img.shields.io/badge/Next.js-14-black?logo=next.js&logoColor=white)
 ![Prisma](https://img.shields.io/badge/Prisma-ORM-2D3748?logo=prisma&logoColor=white)
@@ -11,7 +13,29 @@
 
 ## What is OpsTwin?
 
-OpsTwin is a structured audit and memory layer for AI-assisted development with Cursor. Every time Cursor runs a task in your codebase, OpsTwin captures a detailed JSON record of every file changed, every decision made, every TODO left behind, and every test that passed or failed. It then surfaces mismatches between what you expected and what actually happened, generates a focused rerun prompt targeting only the gaps, and clusters patterns across runs so future tasks benefit from everything that has been tried before. The result is a closed feedback loop that makes Cursor progressively safer, faster, and more predictable on your specific project.
+OpsTwin is a structured audit and memory layer for AI-assisted development. It is **agent-agnostic** — the same workflow works whether you use Cursor, Claude, Gemini, Copilot, Codex, or any other coding agent.
+
+Every time an agent runs a task in your codebase, OpsTwin captures a detailed JSON record of every file changed, every decision made, every TODO left behind, and every test that passed or failed. It then surfaces mismatches between what you expected and what actually happened, generates a focused rerun prompt targeting only the gaps, and clusters patterns across runs so future tasks benefit from everything that has been tried before. The result is a closed feedback loop that makes AI-assisted coding progressively safer, faster, and more predictable on your specific project.
+
+---
+
+## Supported Coding Agents
+
+OpsTwin uses a single audit contract (`.ops/runs/<run_id>/last_run.json`). Any agent that writes that file is supported.
+
+| Agent | Config loaded automatically | Setup guide |
+|---|---|---|
+| **Cursor** | `.cursor/rules.mdc`, `.cursor/skills.md` | [`.opstwin/agents/cursor.md`](.opstwin/agents/cursor.md) |
+| **Claude Code** | `CLAUDE.md`, `.opstwin/` | [`.opstwin/agents/claude.md`](.opstwin/agents/claude.md) |
+| **Gemini** | `GEMINI.md`, `.opstwin/` | [`.opstwin/agents/gemini.md`](.opstwin/agents/gemini.md) |
+| **GitHub Copilot** | `.github/copilot-instructions.md` | [`.opstwin/agents/copilot-codex.md`](.opstwin/agents/copilot-codex.md) |
+| **OpenAI Codex** | `.github/copilot-instructions.md`, `AGENTS.md` | [`.opstwin/agents/copilot-codex.md`](.opstwin/agents/copilot-codex.md) |
+| **Windsurf** | `.windsurfrules`, `.opstwin/` | [`.opstwin/agents/windsurf.md`](.opstwin/agents/windsurf.md) |
+| **Cline** | `.clinerules`, `.opstwin/` | [`.opstwin/agents/cline.md`](.opstwin/agents/cline.md) |
+| **Gravity** | `GRAVITY.md`, `.opstwin/` | [`.opstwin/agents/gravity.md`](.opstwin/agents/gravity.md) |
+| **Any other agent** | `AGENTS.md`, `.opstwin/rules.md` | Paste `.opstwin/task-template.md` as your prompt |
+
+Run `node opstwin-init.js` in any repo to copy all agent config files in one command.
 
 ---
 
@@ -38,8 +62,9 @@ OpsTwin is a structured audit and memory layer for AI-assisted development with 
              ▲
              │ audit JSON upload
 ┌────────────┴───────────────────────────────────────────┐
-│                  CURSOR (AI Agent)                     │
-│  Reads: .cursor/rules.mdc, .cursor/skills.md           │
+│              ANY CODING AGENT                          │
+│  Cursor · Claude · Gemini · Copilot · Codex · …      │
+│  Reads: .opstwin/rules.md + agent-specific config    │
 │  Writes: .ops/runs/<run_id>/last_run.json              │
 └────────────────────────────────────────────────────────┘
 ```
@@ -48,25 +73,36 @@ OpsTwin is a structured audit and memory layer for AI-assisted development with 
 
 ## Features
 
-- **Structured Audit Log** — Every Cursor run produces a structured JSON record containing: files changed, files skipped, TODOs left in code, the decision trace behind each non-trivial edit, test results, next recommended steps, and an overall confidence score. Nothing Cursor does goes unrecorded.
+- **Agent-agnostic audit log** — Every agent run produces the same structured JSON: files changed, files skipped, TODOs left in code, decision trace, test results, next steps, confidence score, and which agent ran it. Nothing goes unrecorded.
 
-- **Mismatch Detection** — OpsTwin automatically compares what you expected against what Cursor actually produced and classifies every gap. Hard failures (broken tests, type errors, missing required changes) are promoted to blockers; soft gaps (leftover TODOs, low confidence scores) are filed as warnings — so you always know exactly where to focus.
+- **Mismatch detection** — OpsTwin automatically compares what you expected against what the agent actually produced and classifies every gap. Hard failures (broken tests, type errors, missing required changes) are promoted to blockers; soft gaps (leftover TODOs, low confidence scores) are filed as warnings.
 
-- **Focused Rerun Prompt** — A one-click copy-to-clipboard button generates a tightly scoped rerun prompt that addresses only the blockers and warnings from the previous run. Cursor gets a precise target instead of re-running the entire task from scratch, cutting wasted cycles dramatically.
+- **Focused rerun prompt** — A one-click copy-to-clipboard button generates a tightly scoped rerun prompt that addresses only the blockers and warnings from the previous run. The agent gets a precise target instead of re-running the entire task from scratch.
 
-- **Pattern Memory** — OpsTwin clusters failures by task type and error category across all runs, tracks fix success rates over time, and surfaces ranked improvement suggestions for future similar tasks. The longer you use it, the smarter its hints become.
+- **Pattern memory** — OpsTwin clusters failures by task type and error category across all runs, tracks fix success rates over time, and surfaces ranked improvement suggestions for future similar tasks.
 
-- **Dashboard Search & Status Filter** — Find any task or run instantly via full-text search, and filter by status (pending, running, completed, failed) to get a live picture of everything in flight.
+- **Dashboard search & status filter** — Find any task or run instantly via full-text search, and filter by status (pending, running, completed, failed).
 
-- **Memory-Based Hints in New Task Modal** — When you create a new task, OpsTwin looks up past runs with similar goals and injects relevant warnings and proven patterns directly into the task creation form — before Cursor even starts.
+- **Memory-based hints in new task modal** — When you create a new task, OpsTwin looks up past runs with similar goals and injects relevant warnings and proven patterns — before the agent even starts.
 
-- **Auto-Poll for Live Runs** — The run viewer automatically refreshes every 5 seconds while a run is in progress, giving you a live window into what Cursor is doing without any manual page reloads.
+- **Auto-poll for live runs** — The run viewer automatically refreshes every 5 seconds while a run is in progress.
 
-- **Rules & Skills Tracking** — Each audit record captures which `.cursor/` configuration files (rules, skills) Cursor actually read during the run, so you can confirm your guidance files are being picked up and audit which rules influenced which decisions.
+- **Rules & skills tracking** — Each audit record captures which configuration files the agent read during the run, so you can confirm your guidance is being picked up.
 
-- **CLI Watcher (`opstwin-cli.js`)** — A zero-dependency Node.js CLI that watches `.ops/runs/` for new JSON files and uploads them to OpsTwin automatically the moment Cursor finishes writing. Zero-touch integration — no manual uploads, no scripts to trigger.
+- **CLI watcher (`opstwin-cli.js`)** — A zero-dependency Node.js CLI that watches `.ops/runs/` and uploads new JSON files automatically the moment any agent finishes writing.
 
-- **One-Command Init (`opstwin-init.js`)** — Copies all required `.cursor/` files, creates the `.ops/runs/` directory, and drops `opstwin-cli.js` into any target repository in a single command. Any repo is OpsTwin-ready in seconds.
+- **One-command init (`opstwin-init.js`)** — Copies universal `.opstwin/` rules plus agent-specific config for Cursor, Claude, Gemini, Copilot, Codex, Windsurf, Cline, Gravity, and more.
+
+---
+
+## Documentation
+
+Full software engineering docs for the MVP are in [`docs/`](./docs/README.md):
+
+- **[Quick Start](./docs/QUICKSTART.md)** ← read this first
+- [PRD](./docs/PRD.md) · [TRD](./docs/TRD.md) · [Use Cases](./docs/USE-CASES.md)
+- [System Architecture](./docs/SYSTEM-ARCHITECTURE.md) · [Memory Layers](./docs/MEMORY-LAYERS.md)
+- [Security](./docs/SECURITY.md) · [Test Plan](./docs/TEST-PLAN.md) · [MVP Roadmap](./docs/MVP-ROADMAP.md)
 
 ---
 
@@ -102,21 +138,38 @@ For Postgres, change `provider = "sqlite"` to `"postgresql"` in `prisma/schema.p
 
 ---
 
-## Cursor Integration
+## Agent Integration
 
-### Step 1: Copy `.cursor/` files to your target repo
+### Step 1: Initialize your target repo
 
-```
-.cursor/rules.mdc        ← Cursor reads this automatically on every run
-.cursor/skills.md        ← Named skill definitions Cursor can reference
-.cursor/task-template.md ← Fill this out for each new task
+```bash
+node opstwin-init.js /path/to/your/repo
 ```
 
-Or use the init script to do this in one command (see [Init Script](#init-script) below).
+This copies:
+
+```
+.opstwin/                  ← Universal rules (all agents)
+  rules.md                 ← Mandatory audit JSON schema
+  skills.md                ← Named skills
+  task-template.md         ← Fill for each task
+  agents/                  ← Per-agent setup guides
+
+AGENTS.md                  ← Universal agent instructions
+CLAUDE.md                  ← Claude Code
+GEMINI.md                  ← Gemini
+GRAVITY.md                 ← Gravity
+.github/copilot-instructions.md  ← Copilot / Codex
+.windsurfrules             ← Windsurf
+.clinerules                ← Cline
+.cursor/                   ← Cursor (rules.mdc, skills.md, task-template.md)
+.ops/runs/                 ← Audit output directory
+opstwin-cli.js             ← Auto-upload watcher
+```
 
 ### Step 2: Fill in the task template
 
-Open `.cursor/task-template.md` and fill in the task details before each Cursor session:
+Open `.opstwin/task-template.md` and fill in the task details before each agent session:
 
 ```
 TASK: add-payment-webhook
@@ -125,11 +178,24 @@ CONSTRAINTS:
   - Do not change: src/lib/stripe.ts
   - Branch: ops/add-payment-webhook-20241201-1430
   - Add tests for: handlePaymentSuccess()
+CONTEXT:
+  - Agent: claude
 ```
 
-### Step 3: Paste into Cursor and run
+### Step 3: Run your agent
 
-Paste the filled template as your first message to Cursor. Cursor will read `rules.mdc` and `skills.md` automatically and write `.ops/runs/<run_id>/last_run.json` when it finishes. The CLI watcher (or a manual upload) sends that file to OpsTwin.
+Paste the filled template as your first message. Your agent reads its config automatically and writes `.ops/runs/<run_id>/last_run.json` when it finishes. The CLI watcher (or a manual upload) sends that file to OpsTwin.
+
+**Examples by agent:**
+
+| Agent | What to do |
+|---|---|
+| **Cursor** | Paste template → Cursor reads `.cursor/rules.mdc` |
+| **Claude Code** | Paste template → Claude reads `CLAUDE.md` |
+| **Gemini** | Paste template + include `.opstwin/rules.md` in context |
+| **Copilot / Codex** | Paste template in Copilot Chat or Workspace |
+| **Windsurf / Cline / Gravity** | Paste template → agent reads its rules file |
+| **Other** | Paste template + attach `AGENTS.md` |
 
 ---
 
@@ -182,7 +248,7 @@ node opstwin-cli.js watch
 
 ## Init Script
 
-`opstwin-init.js` sets up any repository for OpsTwin in a single command — no manual file copying required.
+`opstwin-init.js` sets up any repository for OpsTwin in a single command.
 
 ```bash
 # Initialize OpsTwin in the current directory
@@ -193,10 +259,11 @@ node opstwin-init.js /path/to/your/repo
 ```
 
 The script will:
-1. Create `.cursor/` and copy `rules.mdc`, `skills.md`, and `task-template.md`
-2. Create `.ops/runs/`
-3. Copy `opstwin-cli.js` into the target repo
-4. Print a step-by-step next-steps guide
+1. Copy `.opstwin/` universal rules and per-agent setup guides
+2. Copy agent-specific config (Cursor, Claude, Gemini, Copilot, Codex, Windsurf, Cline, Gravity)
+3. Create `.ops/runs/`
+4. Copy `opstwin-cli.js` into the target repo
+5. Print a step-by-step next-steps guide
 
 ---
 
@@ -204,10 +271,20 @@ The script will:
 
 ```
 opstwin/
-├── .cursor/
-│   ├── rules.mdc           ← Cursor agent rules (mandatory audit output)
-│   ├── skills.md           ← Named skills Cursor uses
-│   └── task-template.md    ← Fill for each task
+├── .opstwin/
+│   ├── rules.md            ← Universal audit rules (all agents)
+│   ├── skills.md           ← Named skills
+│   ├── task-template.md    ← Fill for each task
+│   └── agents/             ← Per-agent setup guides
+├── .cursor/                ← Cursor-specific config
+├── AGENTS.md               ← Universal agent instructions
+├── CLAUDE.md               ← Claude Code
+├── GEMINI.md               ← Gemini
+├── GRAVITY.md              ← Gravity
+├── .github/
+│   └── copilot-instructions.md  ← Copilot / Codex
+├── .windsurfrules          ← Windsurf
+├── .clinerules             ← Cline
 ├── .ops/
 │   ├── runs/               ← Run artifacts (checked into feature branch)
 │   │   └── <run_id>/
@@ -240,10 +317,10 @@ opstwin/
 | Table | Purpose |
 |---|---|
 | `tasks` | Original task intent + metadata |
-| `cursor_runs` | Each Cursor execution |
+| `cursor_runs` | Each agent execution (any coding agent) |
 | `file_edits` | Per-file diffs |
-| `inspected_files` | Files Cursor read but did not change |
-| `expectations` | What the user expected Cursor to do |
+| `inspected_files` | Files the agent read but did not change |
+| `expectations` | What the user expected the agent to do |
 | `outcomes` | User accepted / rejected / modified |
 | `memory_entries` | Learned patterns + fix suggestions |
 
@@ -253,10 +330,11 @@ opstwin/
 
 - [ ] GitHub App integration (auto-create PR from branch)
 - [ ] Slack / email notifications on run complete
-- [ ] Live streaming of Cursor actions via webhook
+- [ ] Live streaming of agent actions via webhook
 - [ ] Acceptance rate heatmap per task type
 - [ ] Auto-apply previously successful fix patterns
 - [ ] JIRA / Linear ticket linking
+- [ ] Agent filter on dashboard (Cursor vs Claude vs Gemini, etc.)
 
 ---
 
@@ -265,7 +343,7 @@ opstwin/
 PRs are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) first.
 
 Every PR must include:
-1. The Cursor task template used to generate the code
+1. The task template used to generate the code (from any coding agent)
 2. The `.ops/runs/<id>/last_run.json` from that run
 3. Tests for any new or modified API routes
 

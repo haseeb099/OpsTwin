@@ -1,10 +1,11 @@
 # OpsTwin Skills — Cursor Agent Reference
+# Canonical copy: .opstwin/skills.md (same rules for Claude, Gemini, Copilot, Codex, etc.)
 
 ## skill: audit-log
 Whenever you complete a task in this repo, you MUST write a structured JSON audit log.
 - Location: `.ops/runs/<run_id>/last_run.json`
-- Fields: run_id, timestamp, original_prompt, branch, confidence, files_changed, files_inspected, files_skipped, todos_left, expected_changes, tests_run, decision_trace, next_steps, blockers
-- This is non-negotiable. If you cannot write the file, add it to blockers.
+- Fields: run_id, timestamp, original_prompt, branch, agent, confidence, files_changed, files_inspected, files_skipped, todos_left, expected_changes, tests_run, decision_trace, next_steps, blockers
+- Set `"agent": "cursor"`. This is non-negotiable.
 
 ## skill: branch-safety
 - Always work on a feature branch: `ops/<task>-<timestamp>`

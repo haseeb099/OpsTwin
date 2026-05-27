@@ -17,6 +17,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       include: {
         fileEdits: true,
         inspectedFiles: true,
+        terminalLogs: { orderBy: { capturedAt: 'desc' } },
+        screenshots: { orderBy: { capturedAt: 'desc' } },
         outcomes: { orderBy: { acceptedAt: 'desc' } },
         task: true,
       },

@@ -21,6 +21,13 @@ export interface RawRunJson {
   blockers: string[]
   rules_read?: string[]
   skills_used?: string[]
+  agent?: string
+  terminal_output?: {
+    command: string
+    exit_code: number
+    stdout?: string
+    stderr?: string
+  }[]
 }
 
 export function parseRunJson(raw: RawRunJson, taskId: string): AuditReport {
@@ -107,6 +114,18 @@ function computeMismatches(raw: RawRunJson): Mismatch[] {
       severity: 'warning',
       suggestedFix: todo.suggested_fix,
     })
+  }
+
+  // Terminal failures → blockers
+  for (const term of raw.terminal_output ?? []) {
+    if (term.exit_code !== 0) {
+      mismatches.push({
+        type: 'lint_error',
+        description: `Command failed: ${term.command} (exit ${term.exit_code})`,
+        severity: 'blocker',
+        suggestedFix: (term.stderr || term.stdout || '').slice(0, 200),
+      })
+    }
   }
 
   return mismatches

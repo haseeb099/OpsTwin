@@ -12,6 +12,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { AuditReport, MemoryEntry } from '@/types'
+import type { WorkflowStep } from '@/types/workflow'
+import PlanView from '@/components/PlanView'
+import RunObservations from '@/components/RunObservations'
+import WorkflowGuide, { detectWorkflowStep, WorkflowStrip } from '@/components/WorkflowGuide'
 
 // ── Design Tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -81,6 +85,7 @@ const Icons = {
   layers: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
   upload: 'M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12',
   copy: 'M16 3H4a2 2 0 00-2 2v12M9 7h11a2 2 0 012 2v11a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2z',
+  help: 'M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 2a10 10 0 100 20 10 10 0 000-20z',
 } as const
 
 // ── Types from the API ───────────────────────────────────────────────────────
@@ -848,11 +853,15 @@ function Dashboard({
   loading,
   memory,
   onSelect,
+  onOpenGuide,
+  workflowStep,
 }: {
   tasks: TaskWithRuns[]
   loading: boolean
   memory: MemoryEntry[]
   onSelect: (task: TaskWithRuns) => void
+  onOpenGuide: () => void
+  workflowStep: WorkflowStep
 }) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | RunStatus | 'pending'>('all')
@@ -874,21 +883,54 @@ function Dashboard({
 
   return (
     <div>
-      <div style={{ marginBottom: 24 }}>
-        <div
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 16,
+          marginBottom: 20,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div>
+          <div
+            style={{
+              color: C.textMuted,
+              fontSize: 12,
+              fontFamily: 'monospace',
+              marginBottom: 4,
+            }}
+          >
+            WORKSPACE
+          </div>
+          <h2 style={{ color: C.text, fontSize: 22, fontWeight: 700, margin: 0 }}>
+            OpsTwin · local
+          </h2>
+          <p style={{ color: C.textDim, fontSize: 12, margin: '6px 0 0' }}>
+            Prompt → Plan → Agent → Audit → Improve
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenGuide}
           style={{
-            color: C.textMuted,
+            background: C.bgCard,
+            border: `1px solid ${C.border}`,
+            color: C.textDim,
+            padding: '8px 14px',
+            borderRadius: 6,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
             fontSize: 12,
-            fontFamily: 'monospace',
-            marginBottom: 4,
+            fontWeight: 600,
           }}
         >
-          WORKSPACE
-        </div>
-        <h2 style={{ color: C.text, fontSize: 22, fontWeight: 700, margin: 0 }}>
-          OpsTwin · local
-        </h2>
+          How it works →
+        </button>
       </div>
+
+      <WorkflowStrip currentStep={workflowStep} onOpenGuide={onOpenGuide} />
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
         <MetricCard label="Total Tasks" value={total} sub="all time" />
@@ -1009,13 +1051,36 @@ function Dashboard({
             background: C.bgCard,
             border: `1px dashed ${C.border}`,
             borderRadius: 8,
-            padding: 32,
+            padding: 40,
             textAlign: 'center',
             color: C.textMuted,
             fontSize: 13,
           }}
         >
-          No tasks yet. Click + to create one.
+          <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 8 }}>
+            No tasks yet
+          </div>
+          <p style={{ margin: '0 0 16px', lineHeight: 1.6 }}>
+            Click <span style={{ color: C.accent }}>+</span> in the sidebar to create your first
+            MVP task.
+          </p>
+          <button
+            type="button"
+            onClick={onOpenGuide}
+            style={{
+              background: C.accentDim,
+              border: `1px solid ${C.accent}44`,
+              color: C.accent,
+              padding: '8px 16px',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            Read the full guide
+          </button>
         </div>
       )}
 
@@ -1730,6 +1795,10 @@ function AuditView({
         </div>
       )}
 
+      {latestRun && (
+        <RunObservations runId={latestRun.id} onToast={onToast} />
+      )}
+
       {showPrompt && focusedPrompt && (
         <PromptModal
           prompt={focusedPrompt}
@@ -1877,7 +1946,9 @@ function MemoryView({ memory, loading }: { memory: MemoryEntry[]; loading: boole
 
 // ── App Shell ────────────────────────────────────────────────────────────────
 export default function OpsTwin() {
-  const [view, setView] = useState<'dashboard' | 'memory' | 'audit'>('dashboard')
+  const [view, setView] = useState<'dashboard' | 'memory' | 'audit' | 'guide'>('dashboard')
+  const [taskTab, setTaskTab] = useState<'audit' | 'plan'>('plan')
+  const [taskPlanStatus, setTaskPlanStatus] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<TaskWithRuns | null>(null)
   const [showNewTask, setShowNewTask] = useState(false)
   const [tasks, setTasks] = useState<TaskWithRuns[]>([])
@@ -1932,10 +2003,35 @@ export default function OpsTwin() {
     return () => clearInterval(interval)
   }, [tasks, loadTasks])
 
+  useEffect(() => {
+    if (!selectedTask) {
+      setTaskPlanStatus(null)
+      return
+    }
+    fetch(`/api/plans?taskId=${selectedTask.id}`)
+      .then((r) => r.json())
+      .then((d: { plan?: { status: string } | null }) => setTaskPlanStatus(d.plan?.status ?? null))
+      .catch(() => setTaskPlanStatus(null))
+  }, [selectedTask])
+
+  const workflowStep = useMemo(() => {
+    if (selectedTask) {
+      return detectWorkflowStep({
+        hasTask: true,
+        planStatus: taskPlanStatus,
+        runStatus: selectedTask.runs[0]?.status ?? 'none',
+      })
+    }
+    return tasks.length === 0 ? 1 : 2
+  }, [selectedTask, taskPlanStatus, tasks])
+
+  const openGuide = useCallback(() => setView('guide'), [])
+
   const navItems = useMemo(
     () => [
       { id: 'dashboard' as const, icon: Icons.layers, label: 'Tasks' },
       { id: 'memory' as const, icon: Icons.brain, label: 'Memory' },
+      { id: 'guide' as const, icon: Icons.help, label: 'Guide' },
     ],
     [],
   )
@@ -1983,7 +2079,7 @@ export default function OpsTwin() {
             key={item.id}
             onClick={() => {
               setView(item.id)
-              setSelectedTask(null)
+              if (item.id !== 'guide') setSelectedTask(null)
             }}
             title={item.label}
             style={{
@@ -2049,22 +2145,132 @@ export default function OpsTwin() {
             tasks={tasks}
             loading={tasksLoading}
             memory={memory}
+            workflowStep={workflowStep}
+            onOpenGuide={openGuide}
             onSelect={(task) => {
               setSelectedTask(task)
+              setTaskTab('plan')
               setView('audit')
             }}
           />
         )}
+        {view === 'guide' && (
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 20,
+                gap: 12,
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    color: C.textMuted,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Reference
+                </div>
+                <h2 style={{ color: C.text, fontSize: 20, fontWeight: 700, margin: '4px 0 0' }}>
+                  How OpsTwin works
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setView(selectedTask ? 'audit' : 'dashboard')}
+                style={{
+                  background: C.bgCard,
+                  border: `1px solid ${C.border}`,
+                  color: C.textMuted,
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: 12,
+                }}
+              >
+                ← Back
+              </button>
+            </div>
+            <WorkflowGuide
+              currentStep={workflowStep}
+              taskId={selectedTask?.id}
+              showCliHint
+            />
+          </div>
+        )}
         {view === 'audit' && selectedTask && (
-          <AuditView
-            task={selectedTask}
-            onBack={() => {
-              setSelectedTask(null)
-              setView('dashboard')
-              loadTasks()
-            }}
-            onToast={pushToast}
-          />
+          <div>
+            <WorkflowStrip
+              currentStep={workflowStep}
+              onOpenGuide={openGuide}
+            />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+              {(['plan', 'audit'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setTaskTab(tab)}
+                  style={{
+                    background: taskTab === tab ? C.accentDim : 'transparent',
+                    border: `1px solid ${taskTab === tab ? C.accent + '44' : C.border}`,
+                    color: taskTab === tab ? C.accent : C.textMuted,
+                    padding: '8px 16px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                  }}
+                >
+                  {tab === 'plan' ? 'MVP Plan' : 'Audit'}
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  setSelectedTask(null)
+                  setView('dashboard')
+                  loadTasks()
+                }}
+                style={{
+                  marginLeft: 'auto',
+                  background: 'none',
+                  border: 'none',
+                  color: C.textMuted,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                }}
+              >
+                {'\u2190 Back'}
+              </button>
+            </div>
+            {taskTab === 'plan' ? (
+              <PlanView
+                taskId={selectedTask.id}
+                taskTitle={selectedTask.title}
+                onToast={pushToast}
+                onPlanChange={setTaskPlanStatus}
+              />
+            ) : (
+              <AuditView
+                task={selectedTask}
+                onBack={() => {
+                  setSelectedTask(null)
+                  setView('dashboard')
+                  loadTasks()
+                }}
+                onToast={pushToast}
+              />
+            )}
+          </div>
         )}
         {view === 'memory' && <MemoryView memory={memory} loading={memoryLoading} />}
       </div>

@@ -154,6 +154,21 @@ export async function POST(req: NextRequest) {
             include: { fileEdits: true, inspectedFiles: true },
           })
 
+      // Persist terminal_output from audit JSON
+      const rawTerminals = (data.auditJson as RawRunJson).terminal_output ?? []
+      if (rawTerminals.length > 0) {
+        await prisma.terminalLog.deleteMany({ where: { runId: run.id } })
+        await prisma.terminalLog.createMany({
+          data: rawTerminals.map((t) => ({
+            runId: run.id,
+            command: t.command,
+            exitCode: t.exit_code,
+            stdout: (t.stdout ?? '').slice(0, 50000),
+            stderr: (t.stderr ?? '').slice(0, 50000),
+          })),
+        })
+      }
+
       // Build / upsert a memory entry keyed by patternHash.
       const memEntry = buildMemoryEntry(report)
       await prisma.memoryEntry.upsert({

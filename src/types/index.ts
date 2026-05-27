@@ -127,3 +127,65 @@ export interface DashboardMetrics {
   topFailurePatterns: { pattern: string; count: number }[]
   recentRuns: { runId: string; taskTitle: string; status: RunStatus; confidence: Confidence }[]
 }
+
+// ── MVP Planning (Phase 1) ───────────────────────────────────────────────────
+
+export type PlanStatus = 'draft' | 'approved' | 'in_progress' | 'complete'
+export type PlanStepStatus = 'pending' | 'in_progress' | 'complete' | 'failed'
+export type PromptStatus = 'draft' | 'approved' | 'rejected' | 'dispatched'
+
+export interface PlanStep {
+  order: number
+  title: string
+  goal: string
+  constraints: string[]
+  expectedFiles: string[]
+  verification: string[]
+  status: PlanStepStatus
+  agentPrompt: string
+}
+
+export interface DocumentBundle {
+  prd: string
+  trd: string
+  useCases: string
+  testPlan: string
+  architecture: string
+}
+
+export interface MvpPlan {
+  id: string
+  taskId: string
+  version: number
+  originalPrompt: string
+  steps: PlanStep[]
+  documents: DocumentBundle
+  status: PlanStatus
+  approvedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PromptProposal {
+  id: string
+  taskId: string
+  planId?: string
+  runId?: string
+  planStepOrder?: number
+  proposedPrompt: string
+  rationale: string
+  status: PromptStatus
+  userEdits?: string
+  approvedAt?: string
+  dispatchedAt?: string
+  createdAt: string
+}
+
+export interface PlanGap {
+  stepOrder: number
+  stepTitle: string
+  type: 'not_started' | 'partial' | 'failed' | 'complete'
+  expected: string
+  actual: string
+  severity: Severity
+}

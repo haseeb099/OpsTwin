@@ -114,7 +114,7 @@ async function main() {
   }
 
   // Shared state
-  let taskId, runId, auditRunId
+  let taskId, runId, auditRunId, planId, proposalId
 
   // ── Tests ─────────────────────────────────────────────────────────────────
 
@@ -252,6 +252,108 @@ async function main() {
     assert(r.status === 201, `Expected 201, got ${r.status} — ${JSON.stringify(r.body)}`)
     assert(r.body.outcome?.id, 'Response missing outcome.id')
     return r.body.outcome
+  })
+
+  // 8. POST /api/plans — generate MVP plan
+  await test('POST /api/plans (generate)', async () => {
+    assert(taskId, 'Skipped — no taskId')
+    const r = await request('POST', `${BASE}/api/plans`, { taskId })
+    assert(r.status === 201, `Expected 201, got ${r.status} — ${JSON.stringify(r.body)}`)
+    assert(r.body.plan?.id, 'Response missing plan.id')
+    assert(Array.isArray(r.body.plan.steps), 'Plan missing steps')
+    assert(r.body.plan.steps.length >= 3, 'Plan should have at least 3 steps')
+    planId = r.body.plan.id
+    return r.body.plan
+  })
+
+  // 9. PATCH /api/plans/:id — approve
+  await test('PATCH /api/plans/:id (approve)', async () => {
+    assert(planId, 'Skipped — no planId')
+    const r = await request('PATCH', `${BASE}/api/plans/${planId}`, { action: 'approve' })
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.body.plan?.status === 'approved', 'Plan should be approved')
+    return r.body.plan
+  })
+
+  // 10. POST /api/prompts/propose
+  await test('POST /api/prompts/propose', async () => {
+    assert(taskId, 'Skipped — no taskId')
+    const r = await request('POST', `${BASE}/api/prompts/propose`, {
+      taskId,
+      runId: auditRunId,
+    })
+    assert(r.status === 201, `Expected 201, got ${r.status}`)
+    assert(r.body.proposal?.id, 'Response missing proposal.id')
+    assert(r.body.proposal.proposedPrompt?.length > 10, 'Proposal prompt too short')
+    proposalId = r.body.proposal.id
+    return r.body.proposal
+  })
+
+  // 11. PATCH /api/prompts/:id — approve
+  await test('PATCH /api/prompts/:id (approve)', async () => {
+    assert(proposalId, 'Skipped — no proposalId')
+    const r = await request('PATCH', `${BASE}/api/prompts/${proposalId}`, { action: 'approve' })
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.body.proposal?.status === 'approved', 'Proposal should be approved')
+    assert(r.body.approvedPrompt, 'Missing approvedPrompt')
+    return r.body
+  })
+
+  // 12. GET /api/health
+  await test('GET  /api/health', async () => {
+    const r = await request('GET', `${BASE}/api/health`)
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.body.status === 'ok', 'Health check failed')
+    return r.body
+  })
+
+  // 13. PATCH /api/plans/:id — update documents
+  await test('PATCH /api/plans/:id (update_documents)', async () => {
+    assert(planId, 'Skipped — no planId')
+    const r = await request('PATCH', `${BASE}/api/plans/${planId}`, {
+      action: 'update_documents',
+      documents: {
+        prd: '# PRD (edited)',
+        trd: '# TRD (edited)',
+        useCases: '# UC',
+        testPlan: '# Tests',
+        architecture: '# Arch',
+      },
+    })
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.body.plan?.documents?.prd?.includes('edited'), 'Doc not updated')
+    return r.body.plan
+  })
+
+  // 14. POST /api/runs/:id/terminal
+  await test('POST /api/runs/:id/terminal', async () => {
+    const id = auditRunId ?? runId
+    assert(id, 'Skipped — no runId')
+    const r = await request('POST', `${BASE}/api/runs/${id}/terminal`, {
+      command: 'npm test',
+      exitCode: 1,
+      stdout: '1 passed',
+      stderr: 'typecheck failed',
+    })
+    assert(r.status === 201, `Expected 201, got ${r.status}`)
+    return r.body.log
+  })
+
+  // 15. POST /api/prompts/:id/dispatch
+  await test('POST /api/prompts/:id/dispatch', async () => {
+    assert(proposalId, 'Skipped — no proposalId')
+    const r = await request('POST', `${BASE}/api/prompts/${proposalId}/dispatch`)
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.body.prompt?.length > 10, 'Missing dispatch prompt')
+    return r.body
+  })
+
+  // 16. GET /api/auth/me
+  await test('GET  /api/auth/me', async () => {
+    const r = await request('GET', `${BASE}/api/auth/me`)
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert('authEnabled' in r.body, 'Missing authEnabled')
+    return r.body
   })
 
   // ── Summary ───────────────────────────────────────────────────────────────

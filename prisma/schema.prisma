@@ -11,15 +11,49 @@ datasource db {
 }
 
 model Task {
-  id             String      @id @default(cuid())
+  id             String           @id @default(cuid())
   user           String
   repo           String
   branch         String
   originalPrompt String
   title          String
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
   runs           CursorRun[]
+  plans          Plan[]
+  prompts        PromptProposal[]
+}
+
+model Plan {
+  id             String           @id @default(cuid())
+  taskId         String
+  task           Task             @relation(fields: [taskId], references: [id])
+  version        Int              @default(1)
+  originalPrompt String
+  stepsJson      String
+  documentsJson  String
+  status         String           @default("draft")
+  approvedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  prompts        PromptProposal[]
+}
+
+model PromptProposal {
+  id             String    @id @default(cuid())
+  taskId         String
+  task           Task      @relation(fields: [taskId], references: [id])
+  planId         String?
+  plan           Plan?     @relation(fields: [planId], references: [id])
+  runId          String?
+  planStepOrder  Int?
+  proposedPrompt String
+  rationale      String
+  status         String    @default("draft")
+  userEdits      String?
+  approvedAt     DateTime?
+  dispatchedAt   DateTime?
+  createdAt      DateTime  @default(now())
 }
 
 model CursorRun {
@@ -36,7 +70,37 @@ model CursorRun {
   inspectedFiles InspectedFile[]
   expectations   Expectation?
   outcomes       Outcome[]
+  terminalLogs   TerminalLog[]
+  screenshots    RunScreenshot[]
   auditJson      String?         // full JSON blob of the .ops/runs/<id>/last_run.json
+}
+
+model TerminalLog {
+  id         String    @id @default(cuid())
+  runId      String
+  run        CursorRun @relation(fields: [runId], references: [id])
+  command    String
+  exitCode   Int
+  stdout     String    @default("")
+  stderr     String    @default("")
+  capturedAt DateTime  @default(now())
+}
+
+model RunScreenshot {
+  id         String    @id @default(cuid())
+  runId      String
+  run        CursorRun @relation(fields: [runId], references: [id])
+  label      String    @default("screenshot")
+  dataUrl    String
+  capturedAt DateTime  @default(now())
+}
+
+model AuthSession {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  user      String   @default("admin")
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
 
 model FileEdit {

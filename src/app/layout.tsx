@@ -1,6 +1,5 @@
 // src/app/layout.tsx
-// Root layout — applies IBM Plex Mono, sets dark base background, and strips
-// default browser padding so the OpsTwin shell can take the full viewport.
+// Root layout — IBM Plex Mono, dark base background, full viewport shell.
 
 import type { Metadata } from 'next'
 import { IBM_Plex_Mono } from 'next/font/google'
@@ -14,9 +13,9 @@ const ibmPlexMono = IBM_Plex_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'OpsTwin — Cursor Execution Audit',
+  title: 'OpsTwin — Agent Orchestration Platform',
   description:
-    'Audit and memory layer for AI-assisted coding with Cursor. Tracks what was changed, skipped, and why.',
+    'Install in your repo. Any coding agent writes audits. OpsTwin plans, detects gaps, and delivers improved prompts.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

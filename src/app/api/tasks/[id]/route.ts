@@ -74,6 +74,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     const runIds = runs.map((r) => r.id)
 
     await prisma.$transaction([
+      prisma.promptProposal.deleteMany({ where: { taskId: params.id } }),
+      prisma.plan.deleteMany({ where: { taskId: params.id } }),
+      prisma.terminalLog.deleteMany({ where: { runId: { in: runIds } } }),
+      prisma.runScreenshot.deleteMany({ where: { runId: { in: runIds } } }),
       prisma.outcome.deleteMany({ where: { runId: { in: runIds } } }),
       prisma.fileEdit.deleteMany({ where: { runId: { in: runIds } } }),
       prisma.inspectedFile.deleteMany({ where: { runId: { in: runIds } } }),

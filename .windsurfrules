@@ -1,0 +1,5 @@
+# OpsTwin — Windsurf / Cascade
+
+Follow `.opstwin/rules.md` and `.opstwin/skills.md`.
+After every task write `.ops/runs/<run_id>/last_run.json` with `"agent": "windsurf"`.
+Use `.opstwin/task-template.md` for each new task.
