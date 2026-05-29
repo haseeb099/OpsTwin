@@ -1,3 +1,4 @@
+// GET  /api/prompts/[id] — fetch a single proposal
 // PATCH /api/prompts/[id] — approve or reject proposal
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -6,6 +7,19 @@ import { prisma } from '@/lib/db'
 import { parseProposalFromDb, getApprovedPromptText } from '@/lib/prompt-proposer'
 
 export const dynamic = 'force-dynamic'
+
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const row = await prisma.promptProposal.findUnique({ where: { id: params.id } })
+    if (!row) {
+      return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
+    }
+    return NextResponse.json({ proposal: parseProposalFromDb(row) })
+  } catch (err) {
+    console.error('[GET /api/prompts/[id]]', err)
+    return NextResponse.json({ error: 'Failed to fetch proposal' }, { status: 500 })
+  }
+}
 
 const PatchSchema = z.object({
   action: z.enum(['approve', 'reject']),

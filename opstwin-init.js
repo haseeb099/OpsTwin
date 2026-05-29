@@ -106,20 +106,56 @@ function main() {
     );
   }
 
-  // 3. Create .ops/runs/, .ops/dispatch/, .ops/terminal/
-  for (const sub of ['runs', 'dispatch', 'terminal']) {
+  // 3. Create .ops/runs/, .ops/dispatch/, .ops/terminal/, .ops/prompts/
+  for (const sub of ['runs', 'dispatch', 'terminal', 'prompts', 'context']) {
     const dir = path.join(targetDir, '.ops', sub);
     mkdirp(dir);
     console.log(`  [ok]    ${dir}`);
   }
+  const inboundTemplate = path.join(targetDir, '.ops', 'prompts', 'inbound.md');
+  if (!fs.existsSync(inboundTemplate)) {
+    fs.writeFileSync(
+      inboundTemplate,
+      '# Append agent prompts here (timestamped entries)\n\n',
+      'utf8',
+    );
+    console.log(`  [ok]    ${inboundTemplate}`);
+  }
   console.log(`\nCreated directories:`);
 
-  // 4. Copy opstwin-cli.js
+  // 4. Copy opstwin-cli.js + scripts/
   console.log(`\nCopying CLI tool:`);
   copyFile(
     path.join(opstwinDir, 'opstwin-cli.js'),
     path.join(targetDir, 'opstwin-cli.js'),
   );
+  const scriptsSrc = path.join(opstwinDir, 'scripts');
+  if (fs.existsSync(scriptsSrc)) {
+    copyDir(scriptsSrc, path.join(targetDir, 'scripts'));
+  }
+
+  const configPath = path.join(targetDir, '.ops', 'opstwin.config.json');
+  const existingCfg = fs.existsSync(configPath)
+    ? JSON.parse(fs.readFileSync(configPath, 'utf8'))
+    : {};
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify(
+      {
+        url: 'http://localhost:3000',
+        taskId: '',
+        opstwinRoot: opstwinDir.replace(/\\/g, '/'),
+        autoRunCursor: false,
+        _note: 'Full loop: $env:CURSOR_API_KEY=...; node opstwin-cli.js loop <taskId>',
+        ...existingCfg,
+        opstwinRoot: opstwinDir.replace(/\\/g, '/'),
+      },
+      null,
+      2,
+    ) + '\n',
+    'utf8',
+  );
+  console.log(`  [ok]    ${configPath}`);
 
   const opstwinDisplay = opstwinDir;
 
@@ -142,14 +178,22 @@ function main() {
        Open http://localhost:3000 and click  +  (New Task)
        Copy the task ID shown in the URL or task card.
 
-  3. Start the file watcher in your repo:
+  3. Connect this repo to your OpsTwin task (copy task ID from dashboard URL):
        cd ${targetDir}
-       OPSTWIN_URL=http://localhost:3000 OPSTWIN_TASK_ID=<id> node opstwin-cli.js watch
+       node opstwin-cli.js connect <task-id-from-dashboard>
 
-     On Windows (PowerShell):
-       $env:OPSTWIN_URL="http://localhost:3000"; $env:OPSTWIN_TASK_ID="<id>"; node opstwin-cli.js watch
+     On Windows (PowerShell) — same command:
+       node opstwin-cli.js connect <task-id-from-dashboard>
 
-  4. Run your coding agent:
+  4. Full automation (Cursor runs via API — leave running):
+       $env:CURSOR_API_KEY="your-key-from-cursor.com/settings"
+       node opstwin-cli.js loop <task-id-from-dashboard>
+
+  5. In the dashboard:
+       Review draft proposals → Send to Agent when ready
+       CLI writes .ops/dispatch/pending-prompt.md automatically
+
+  6. Run your coding agent:
        Fill in .opstwin/task-template.md and paste as your first prompt.
        Your agent reads its config automatically:
          Cursor  → .cursor/rules.mdc

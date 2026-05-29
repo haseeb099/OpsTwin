@@ -9,6 +9,10 @@ import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { parseRunJson, generateFocusedRerunPrompt } from '@/lib/audit-parser'
 import { buildMemoryEntry } from '@/lib/memory-engine'
+import { parseStackContext } from '@/lib/context-collector'
+import { proposeFromAnalysis } from '@/lib/analysis-engine'
+import { syncPlanStepsAfterAuditUpload } from '@/lib/plan-step-sync'
+import { parseProposalFromDb } from '@/lib/prompt-proposer'
 import type { RawRunJson } from '@/lib/audit-parser'
 
 export const dynamic = 'force-dynamic'
@@ -25,6 +29,8 @@ const UploadAuditSchema = z.object({
   runId: z.string().optional(),
   taskId: z.string().min(1),
   auditJson: z.record(z.any()),
+  stackContext: z.record(z.any()).optional(),
+  autoPropose: z.boolean().optional(),
 })
 
 export async function GET(req: NextRequest) {
@@ -97,6 +103,9 @@ export async function POST(req: NextRequest) {
         ? await prisma.cursorRun.findUnique({ where: { id: targetRunId } })
         : null
 
+      const stackContext = data.stackContext ? parseStackContext(data.stackContext) : null
+      const stackContextJson = stackContext ? JSON.stringify(stackContext) : null
+
       const run = existing
         ? await prisma.cursorRun.update({
             where: { id: existing.id },
@@ -106,6 +115,7 @@ export async function POST(req: NextRequest) {
               branch: report.branch,
               finishedAt: new Date(),
               auditJson: JSON.stringify(data.auditJson),
+              stackContextJson: stackContextJson ?? undefined,
               fileEdits: {
                 deleteMany: {},
                 create: report.filesChanged.map((f) => ({
@@ -135,6 +145,7 @@ export async function POST(req: NextRequest) {
               branch: report.branch,
               finishedAt: new Date(),
               auditJson: JSON.stringify(data.auditJson),
+              stackContextJson,
               fileEdits: {
                 create: report.filesChanged.map((f) => ({
                   path: f.path,
@@ -183,11 +194,60 @@ export async function POST(req: NextRequest) {
       const focusedRerunPrompt =
         report.mismatches.length > 0 ? generateFocusedRerunPrompt(report) : null
 
+      const autoPropose =
+        data.autoPropose === true || process.env.OPSTWIN_AUTO_PROPOSE === 'true'
+
+      let proposal = null
+      let planStepOrder: number | null = null
+      if (autoPropose) {
+        try {
+          const planRow = await prisma.plan.findFirst({
+            where: { taskId: data.taskId },
+            orderBy: { createdAt: 'desc' },
+          })
+          const analysis = await proposeFromAnalysis({
+            taskId: data.taskId,
+            runId: run.id,
+          })
+          planStepOrder = analysis.planStepOrder ?? null
+          const row = await prisma.promptProposal.create({
+            data: {
+              taskId: data.taskId,
+              planId: planRow?.id,
+              runId: run.id,
+              planStepOrder: analysis.planStepOrder,
+              proposedPrompt: analysis.improvedPrompt,
+              rationale: analysis.rationale,
+              status: 'draft',
+            },
+          })
+          proposal = parseProposalFromDb(row)
+        } catch (autoErr) {
+          console.error('[upload_audit] auto-propose failed:', autoErr)
+        }
+      }
+
+      let updatedPlan = null
+      try {
+        updatedPlan = await syncPlanStepsAfterAuditUpload({
+          taskId: data.taskId,
+          runId: run.id,
+          report,
+          runStatus: status,
+          planStepOrder,
+        })
+      } catch (syncErr) {
+        console.error('[upload_audit] step sync failed:', syncErr)
+      }
+
       return NextResponse.json({
         run,
         report,
         focusedRerunPrompt,
         memoryEntry: memEntry,
+        stackContext,
+        proposal,
+        updatedPlan,
       })
     }
 

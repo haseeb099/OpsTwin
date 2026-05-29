@@ -73,3 +73,19 @@ When given a task, structure your approach:
 4. Run verifications
 5. Write audit JSON
 6. Print next steps with confidence level
+
+## PROMPT CAPTURE (file-based)
+When the user gives you a task prompt, append a timestamped entry to `.ops/prompts/inbound.md`:
+```
+## 2026-05-27T12:00:00Z
+<exact user prompt>
+```
+Run `node opstwin-cli.js prompt-watch` in the project to auto-upload captures.
+
+## ONE-CLICK DISPATCH
+After OpsTwin proposes an improved prompt, the user can run:
+```
+node opstwin-cli.js next --yes
+```
+This approves and writes `.ops/dispatch/pending-prompt.md` for the agent to read.
+Reference `opstwin next` in next_steps when a focused rerun is recommended.

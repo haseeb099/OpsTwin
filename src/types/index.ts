@@ -143,6 +143,10 @@ export interface PlanStep {
   verification: string[]
   status: PlanStepStatus
   agentPrompt: string
+  startedAt?: string
+  completedAt?: string
+  lastRunId?: string
+  skipped?: boolean
 }
 
 export interface DocumentBundle {
@@ -151,6 +155,34 @@ export interface DocumentBundle {
   useCases: string
   testPlan: string
   architecture: string
+  erd?: string
+}
+
+export type TimelineEventKind =
+  | 'plan_created'
+  | 'plan_approved'
+  | 'step_started'
+  | 'step_completed'
+  | 'step_failed'
+  | 'step_skipped'
+  | 'proposal_created'
+  | 'proposal_approved'
+  | 'proposal_dispatched'
+  | 'proposal_delivered'
+  | 'run_uploaded'
+  | 'cursor_run_queued'
+  | 'cursor_run_finished'
+
+export interface TimelineEvent {
+  id: string
+  kind: TimelineEventKind
+  at: string
+  title: string
+  detail?: string
+  stepOrder?: number
+  runId?: string
+  proposalId?: string
+  severity?: 'info' | 'warning' | 'error' | 'success'
 }
 
 export interface MvpPlan {
@@ -178,6 +210,7 @@ export interface PromptProposal {
   userEdits?: string
   approvedAt?: string
   dispatchedAt?: string
+  deliveredAt?: string
   createdAt: string
 }
 
@@ -188,4 +221,30 @@ export interface PlanGap {
   expected: string
   actual: string
   severity: Severity
+}
+
+export interface StackContext {
+  frontend: { framework?: string; changedFiles: string[]; routes?: string[] }
+  backend: { apiRoutes?: string[]; changedFiles: string[] }
+  database: { orm?: string; models?: string[]; migrationsPending?: boolean }
+  tests: { failed: string[]; passed: number; failedCount: number }
+  git?: { branch?: string }
+}
+
+export interface CapturedPromptRecord {
+  id: string
+  taskId: string
+  source: string
+  content: string
+  capturedAt: string
+}
+
+export interface AnalysisPreview {
+  improvedPrompt: string
+  rationale: string
+  docPatches?: Partial<DocumentBundle>
+  severitySummary: { blockers: number; warnings: number; info: number }
+  suggestedCommands: string[]
+  source: 'llm' | 'rules'
+  gaps: PlanGap[]
 }

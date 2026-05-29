@@ -325,11 +325,75 @@ Approve prompt for dispatch.
 
 ---
 
+## 6. Auto-Watch endpoints
+
+### POST /api/runs/[id]/analyze
+
+Preview analysis without creating a proposal.
+
+**Response 200:**
+
+```json
+{
+  "analysis": {
+    "improvedPrompt": "...",
+    "rationale": "...",
+    "severitySummary": { "blockers": 1, "warnings": 2, "info": 0 },
+    "suggestedCommands": ["npm test"],
+    "source": "llm|rules",
+    "gaps": []
+  },
+  "gaps": [],
+  "stackContext": { "frontend": {}, "backend": {}, "database": {}, "tests": {} }
+}
+```
+
+---
+
+### POST /api/prompts/capture
+
+Store captured agent prompt from file or dashboard.
+
+**Request:** `{ "taskId": "...", "content": "...", "source": "inbound_file" }`
+
+**Response 201:** `{ "prompt": CapturedPrompt }`
+
+---
+
+### GET /api/prompts/capture?taskId=
+
+**Response 200:** `{ "prompts": [...], "latest": CapturedPrompt | null }`
+
+---
+
+### POST /api/runs (upload_audit) — extended
+
+Additional optional fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `stackContext` | object | Frontend/backend/database context from CLI |
+| `autoPropose` | boolean | Create draft proposal after upload |
+
+**Response may include:** `{ "proposal": PromptProposal }`
+
+---
+
+### POST /api/prompts/propose — extended
+
+| Field | Type | Description |
+|---|---|---|
+| `useLlm` | boolean | Default true when key set; `false` forces rules |
+
+**Response includes:** `{ "source": "llm|rules", "suggestedCommands": [] }`
+
+---
+
 ## 7. Type definitions
 
 See `src/types/index.ts` for:
 
-- `AuditReport`, `Mismatch`, `MemoryEntry`
+- `AuditReport`, `Mismatch`, `MemoryEntry`, `StackContext`, `CapturedPromptRecord`
 - `RunStatus`, `Confidence`, `OutcomeAction`, `Severity`
 
 ---
@@ -338,7 +402,11 @@ See `src/types/index.ts` for:
 
 | CLI command | API call |
 |---|---|
-| `upload` | POST `/api/runs` action=`upload_audit` |
+| `upload` | POST `/api/runs` action=`upload_audit` (+ `stackContext`) |
+| `watch` | upload with `autoPropose: true` |
+| `sync` | upload + capture + terminal |
+| `next --yes` | POST propose → PATCH approve → POST dispatch |
+| `prompt-watch` | POST `/api/prompts/capture` |
 | `status` | GET `/api/runs?taskId=` |
 | `rerun` | GET `/api/runs/[id]` → print `focusedRerunPrompt` |
 | `memory` | GET `/api/memory` |

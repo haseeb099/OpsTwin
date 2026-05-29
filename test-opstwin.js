@@ -289,6 +289,15 @@ async function main() {
     return r.body.proposal
   })
 
+  // 10b. GET /api/prompts/:id
+  await test('GET  /api/prompts/:id', async () => {
+    assert(proposalId, 'Skipped — no proposalId')
+    const r = await request('GET', `${BASE}/api/prompts/${proposalId}`)
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.body.proposal?.id === proposalId, 'Wrong proposal returned')
+    return r.body.proposal
+  })
+
   // 11. PATCH /api/prompts/:id — approve
   await test('PATCH /api/prompts/:id (approve)', async () => {
     assert(proposalId, 'Skipped — no proposalId')
@@ -343,9 +352,123 @@ async function main() {
   await test('POST /api/prompts/:id/dispatch', async () => {
     assert(proposalId, 'Skipped — no proposalId')
     const r = await request('POST', `${BASE}/api/prompts/${proposalId}/dispatch`)
-    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.status === 200, `Expected 200, got ${r.status} — ${JSON.stringify(r.body)}`)
     assert(r.body.prompt?.length > 10, 'Missing dispatch prompt')
     return r.body
+  })
+
+  // 15b. GET /api/prompts/pending
+  await test('GET  /api/prompts/pending', async () => {
+    assert(taskId, 'Skipped — no taskId')
+    const r = await request('GET', `${BASE}/api/prompts/pending?taskId=${taskId}`)
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(Array.isArray(r.body.pending), 'Missing pending array')
+    assert(r.body.pending.length >= 1, 'Expected pending delivery after dispatch')
+    return r.body.pending
+  })
+
+  // 15c. POST /api/prompts/:id/delivered
+  await test('POST /api/prompts/:id/delivered', async () => {
+    assert(proposalId, 'Skipped — no proposalId')
+    const r = await request('POST', `${BASE}/api/prompts/${proposalId}/delivered`)
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.body.proposal?.deliveredAt, 'Missing deliveredAt')
+    return r.body.proposal
+  })
+
+  // 15d. CLI heartbeat + status
+  await test('POST /api/cli/heartbeat + GET status', async () => {
+    assert(taskId, 'Skipped — no taskId')
+    const hb = await request('POST', `${BASE}/api/cli/heartbeat`, {
+      taskId,
+      repoPath: '/tmp/test-repo',
+      mode: 'daemon',
+    })
+    assert(hb.status === 200, `Expected 200, got ${hb.status}`)
+    const st = await request('GET', `${BASE}/api/cli/status?taskId=${taskId}`)
+    assert(st.status === 200, `Expected 200, got ${st.status}`)
+    assert(st.body.connected === true, 'CLI should show connected')
+    return st.body
+  })
+
+  // 17. POST /api/runs/:id/analyze
+  await test('POST /api/runs/:id/analyze', async () => {
+    const id = auditRunId ?? runId
+    assert(id, 'Skipped — no runId')
+    const r = await request('POST', `${BASE}/api/runs/${id}/analyze`)
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.body.analysis?.improvedPrompt?.length > 5, 'Missing analysis.improvedPrompt')
+    assert(r.body.gaps, 'Missing gaps')
+    return r.body
+  })
+
+  // 18. POST /api/prompts/capture
+  await test('POST /api/prompts/capture', async () => {
+    assert(taskId, 'Skipped — no taskId')
+    const r = await request('POST', `${BASE}/api/prompts/capture`, {
+      taskId,
+      content: 'Fix the typecheck error in payment.ts',
+      source: 'inbound_file',
+    })
+    assert(r.status === 201, `Expected 201, got ${r.status}`)
+    assert(r.body.prompt?.id, 'Missing prompt.id')
+    return r.body.prompt
+  })
+
+  // 19. GET /api/prompts/capture
+  await test('GET  /api/prompts/capture', async () => {
+    assert(taskId, 'Skipped — no taskId')
+    const r = await request('GET', `${BASE}/api/prompts/capture?taskId=${taskId}`)
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.body.latest?.content, 'Missing latest captured prompt')
+    return r.body
+  })
+
+  // 20. POST /api/runs upload with stackContext
+  await test('POST /api/runs (stackContext)', async () => {
+    assert(taskId, 'Skipped — no taskId')
+    const r = await request('POST', `${BASE}/api/runs`, {
+      action: 'upload_audit',
+      taskId,
+      auditJson: {
+        run_id: 'run_stack_test',
+        timestamp: new Date().toISOString(),
+        original_prompt: 'test stack context',
+        branch: 'ops/stack-test',
+        confidence: 'high',
+        files_changed: [{ path: 'src/app/page.tsx', lines_added: 1, lines_removed: 0, diff: '+' }],
+        files_inspected: [],
+        files_skipped: [],
+        todos_left: [],
+        expected_changes: '',
+        tests_run: [{ name: 'unit', status: 'pass' }],
+        decision_trace: [],
+        next_steps: [],
+        blockers: [],
+      },
+      stackContext: {
+        frontend: { framework: 'next', changedFiles: ['src/app/page.tsx'] },
+        backend: { apiRoutes: ['/api/tasks'], changedFiles: [] },
+        database: { orm: 'prisma', models: ['Task'] },
+        tests: { failed: [], passed: 1, failedCount: 0 },
+      },
+    })
+    assert(r.status === 200, `Expected 200, got ${r.status}`)
+    assert(r.body.stackContext?.frontend?.framework === 'next', 'stackContext not stored')
+    return r.body
+  })
+
+  // 21. POST /api/prompts/propose (rules fallback)
+  await test('POST /api/prompts/propose (useLlm=false)', async () => {
+    assert(taskId, 'Skipped — no taskId')
+    const r = await request('POST', `${BASE}/api/prompts/propose`, {
+      taskId,
+      runId: auditRunId,
+      useLlm: false,
+    })
+    assert(r.status === 201, `Expected 201, got ${r.status}`)
+    assert(r.body.source === 'rules', 'Expected rules fallback')
+    return r.body.proposal
   })
 
   // 16. GET /api/auth/me

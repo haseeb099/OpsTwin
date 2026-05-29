@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { parseRunJson, generateFocusedRerunPrompt } from '@/lib/audit-parser'
+import { stackContextFromJson } from '@/lib/context-collector'
 import type { RawRunJson } from '@/lib/audit-parser'
 import type { AuditReport } from '@/types'
 
@@ -42,7 +43,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    return NextResponse.json({ run, report, focusedRerunPrompt })
+    return NextResponse.json({ run, report, focusedRerunPrompt, stackContext: stackContextFromJson(run.stackContextJson) })
   } catch (err) {
     console.error('[GET /api/runs/[id]]', err)
     return NextResponse.json({ error: 'Failed to fetch run' }, { status: 500 })

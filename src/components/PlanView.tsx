@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { TaskIdChip } from '@/components/TaskIdChip'
 import AutomationPanel from '@/components/AutomationPanel'
-import type { AnalysisPreview, CapturedPromptRecord, MvpPlan, PlanGap, PromptProposal } from '@/types'
+import ActivityTimeline from '@/components/command-center/ActivityTimeline'
+import DocumentStatusBar, { type DocKey } from '@/components/command-center/DocumentStatusBar'
+import PipelineStepper from '@/components/command-center/PipelineStepper'
+import type { AnalysisPreview, CapturedPromptRecord, MvpPlan, PlanGap, PlanStep, PromptProposal, TimelineEvent } from '@/types'
 
 const C = {
   bgCard: '#0f1218',
@@ -23,7 +26,7 @@ const C = {
   accentDim: '#003344',
 }
 
-type DocTab = 'prd' | 'trd' | 'useCases' | 'testPlan' | 'architecture'
+type DocTab = DocKey
 
 interface PlanViewProps {
   taskId: string
@@ -47,6 +50,23 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
   const [analysisPreview, setAnalysisPreview] = useState<AnalysisPreview | null>(null)
   const [proposeSource, setProposeSource] = useState<'llm' | 'rules'>('rules')
   const [capturedPrompt, setCapturedPrompt] = useState<CapturedPromptRecord | null>(null)
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([])
+  const [timelineLoading, setTimelineLoading] = useState(false)
+
+  const loadTimeline = useCallback(async (planId: string) => {
+    setTimelineLoading(true)
+    try {
+      const res = await fetch(`/api/plans/${planId}/timeline`)
+      if (res.ok) {
+        const data = (await res.json()) as { events: TimelineEvent[] }
+        setTimeline(data.events ?? [])
+      }
+    } catch {
+      setTimeline([])
+    } finally {
+      setTimelineLoading(false)
+    }
+  }, [])
 
   const loadPlan = useCallback(async () => {
     setLoading(true)
@@ -66,9 +86,11 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
           setGaps(d.gaps ?? [])
           setLatestRunId(d.latestRunId ?? null)
         }
+        void loadTimeline(data.plan.id)
       } else {
         setGaps([])
         setLatestRunId(null)
+        setTimeline([])
       }
 
       const capRes = await fetch(`/api/prompts/capture?taskId=${taskId}`)
@@ -87,7 +109,7 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
     } finally {
       setLoading(false)
     }
-  }, [taskId, onToast, onPlanChange])
+  }, [taskId, onToast, onPlanChange, loadTimeline])
 
   useEffect(() => {
     loadPlan()
@@ -98,6 +120,12 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
       })
       .catch(() => {})
   }, [loadPlan])
+
+  useEffect(() => {
+    if (!plan?.id) return
+    const id = setInterval(() => void loadTimeline(plan.id), 12000)
+    return () => clearInterval(id)
+  }, [plan?.id, loadTimeline])
 
   const generatePlan = async () => {
     setBusy('generate')
@@ -284,8 +312,30 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
 
   const startEditDocs = () => {
     if (!plan) return
-    setEditDocs({ ...plan.documents })
+    setEditDocs({ ...plan.documents, erd: plan.documents.erd ?? '' })
     setEditingDocs(true)
+  }
+
+  const stepAction = async (
+    order: number,
+    action: 'mark_done' | 'mark_failed' | 'skip' | 'reset' | 'activate',
+  ) => {
+    if (!plan) return
+    setBusy(`step-${order}`)
+    try {
+      const res = await fetch(`/api/plans/${plan.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'step_action', stepOrder: order, stepAction: action }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      onToast(`Step ${order} updated`, 'success')
+      await loadPlan()
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : 'Step update failed', 'error')
+    } finally {
+      setBusy(null)
+    }
   }
 
   const latestDraft = proposals.find((p) => p.status === 'draft')
@@ -333,23 +383,6 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
       </div>
     )
   }
-
-  const docTabs: { id: DocTab; label: string }[] = [
-    { id: 'prd', label: 'PRD' },
-    { id: 'trd', label: 'TRD' },
-    { id: 'useCases', label: 'Use Cases' },
-    { id: 'testPlan', label: 'Test Plan' },
-    { id: 'architecture', label: 'Architecture' },
-  ]
-
-  const stepColor = (status: string) =>
-    status === 'complete'
-      ? C.greenText
-      : status === 'failed'
-        ? C.redText
-        : status === 'in_progress'
-          ? C.blueText
-          : C.textMuted
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -425,47 +458,26 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
       <AutomationPanel
         taskId={taskId}
         onToast={onToast}
-        onPropose={() => proposePrompt()}
+        onPropose={() => {
+          const active = plan.steps.find((s) => s.status === 'in_progress')
+          void proposePrompt(active?.order)
+        }}
         latestProposalId={(latestDraft ?? latestApproved ?? latestWithAgent)?.id}
       />
 
-      <Section title={`Steps (${plan.steps.length})`}>
-        {plan.steps.map((step) => (
-          <div
-            key={step.order}
-            style={{
-              border: `1px solid ${C.border}`,
-              borderRadius: 6,
-              padding: 14,
-              marginBottom: 8,
-              background: '#0a0c10',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-              <div>
-                <span style={{ color: C.accent, fontWeight: 700 }}>{step.order}.</span>{' '}
-                <span style={{ fontWeight: 600 }}>{step.title}</span>
-                <span
-                  style={{
-                    marginLeft: 8,
-                    fontSize: 11,
-                    color: stepColor(step.status),
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {step.status}
-                </span>
-              </div>
-              <button
-                onClick={() => copyText(step.agentPrompt, `Step ${step.order} prompt`)}
-                style={btnSmall}
-              >
-                Copy prompt
-              </button>
-            </div>
-            <div style={{ color: C.textDim, fontSize: 12, marginTop: 6 }}>{step.goal}</div>
-          </div>
-        ))}
+      <Section title="Command Center — Pipeline">
+        <PipelineStepper
+          steps={plan.steps}
+          planStatus={plan.status}
+          busy={!!busy}
+          onStepAction={stepAction}
+          onProposeStep={(order) => void proposePrompt(order)}
+          onCopyPrompt={(step: PlanStep) => void copyText(step.agentPrompt, `Step ${step.order} prompt`)}
+        />
+      </Section>
+
+      <Section title="Activity Timeline">
+        <ActivityTimeline events={timeline} loading={timelineLoading} />
       </Section>
 
       {capturedPrompt && (
@@ -682,23 +694,10 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
       )}
 
       <Section title="Generated Documents">
+        <DocumentStatusBar plan={plan} activeTab={docTab} onSelect={setDocTab} />
         <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
-          {docTabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setDocTab(t.id)}
-              style={{
-                ...btnSmall,
-                background: docTab === t.id ? C.accentDim : 'transparent',
-                borderColor: docTab === t.id ? C.accent : C.border,
-                color: docTab === t.id ? C.accent : C.textMuted,
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
           <button
-            onClick={() => copyText(plan.documents[docTab], docTab)}
+            onClick={() => copyText(plan.documents[docTab] ?? '', docTab)}
             style={{ ...btnSmall, marginLeft: 'auto' }}
           >
             Copy doc
@@ -726,7 +725,7 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
         </div>
         {editingDocs && editDocs ? (
           <textarea
-            value={editDocs[docTab]}
+            value={editDocs[docTab] ?? ''}
             onChange={(e) => setEditDocs({ ...editDocs, [docTab]: e.target.value })}
             style={{
               width: '100%',
@@ -757,7 +756,7 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
               margin: 0,
             }}
           >
-            {plan.documents[docTab]}
+            {plan.documents[docTab] ?? '(empty — edit to add content)'}
           </pre>
         )}
       </Section>

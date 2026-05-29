@@ -19,10 +19,10 @@ export default function SetupPanel({ taskId }: { taskId?: string }) {
       code: 'cd opstwin && npm run dev',
     },
     {
-      label: 'Connect repo watcher (run in your project folder)',
+      label: 'Start autopilot in your project (one command — leave running)',
       code: taskId
-        ? `$env:OPSTWIN_URL="http://localhost:3000"; $env:OPSTWIN_TASK_ID="${taskId}"; node opstwin-cli.js watch`
-        : `$env:OPSTWIN_URL="http://localhost:3000"; $env:OPSTWIN_TASK_ID="<task-id>"; node opstwin-cli.js watch`,
+        ? `node opstwin-cli.js daemon ${taskId}`
+        : `node opstwin-cli.js daemon <task-id-from-dashboard>`,
     },
   ]
 

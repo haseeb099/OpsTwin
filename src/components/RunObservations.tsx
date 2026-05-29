@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import type { StackContext } from '@/types'
 
 const C = {
   border: '#1e2530',
@@ -36,12 +37,14 @@ export default function RunObservations({
 }) {
   const [logs, setLogs] = useState<TerminalLog[]>([])
   const [screenshots, setScreenshots] = useState<Screenshot[]>([])
+  const [stackContext, setStackContext] = useState<StackContext | null>(null)
   const [uploading, setUploading] = useState(false)
 
   const load = useCallback(async () => {
-    const [tRes, sRes] = await Promise.all([
+    const [tRes, sRes, runRes] = await Promise.all([
       fetch(`/api/runs/${runId}/terminal`),
       fetch(`/api/runs/${runId}/screenshots`),
+      fetch(`/api/runs/${runId}`),
     ])
     if (tRes.ok) {
       const d = (await tRes.json()) as { logs: TerminalLog[] }
@@ -50,6 +53,10 @@ export default function RunObservations({
     if (sRes.ok) {
       const d = (await sRes.json()) as { screenshots: Screenshot[] }
       setScreenshots(d.screenshots ?? [])
+    }
+    if (runRes.ok) {
+      const d = (await runRes.json()) as { stackContext?: StackContext | null }
+      setStackContext(d.stackContext ?? null)
     }
   }, [runId])
 
@@ -86,6 +93,36 @@ export default function RunObservations({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 20 }}>
+      {stackContext && (
+        <Section title="Stack context">
+          <div style={{ fontSize: 11, color: C.textDim, display: 'grid', gap: 8 }}>
+            <div>
+              <strong style={{ color: C.accent }}>Frontend</strong>{' '}
+              {stackContext.frontend.framework ?? 'unknown'}
+              {stackContext.frontend.changedFiles.length > 0 &&
+                ` · ${stackContext.frontend.changedFiles.length} changed`}
+            </div>
+            <div>
+              <strong style={{ color: C.accent }}>Backend</strong>{' '}
+              {stackContext.backend.apiRoutes?.length ?? 0} API routes
+              {stackContext.backend.changedFiles.length > 0 &&
+                ` · ${stackContext.backend.changedFiles.length} changed`}
+            </div>
+            <div>
+              <strong style={{ color: C.accent }}>Database</strong>{' '}
+              {stackContext.database.orm ?? 'none detected'}
+              {stackContext.database.models?.length
+                ? ` · ${stackContext.database.models.length} models`
+                : ''}
+            </div>
+            <div>
+              <strong style={{ color: C.accent }}>Tests</strong> passed{' '}
+              {stackContext.tests.passed} · failed {stackContext.tests.failedCount}
+            </div>
+          </div>
+        </Section>
+      )}
+
       <Section title="Terminal output">
         {logs.length === 0 ? (
           <p style={{ color: C.textMuted, fontSize: 12, margin: 0 }}>

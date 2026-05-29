@@ -95,6 +95,7 @@ export function parseProposalFromDb(row: {
   userEdits: string | null
   approvedAt: Date | null
   dispatchedAt: Date | null
+  deliveredAt?: Date | null
   createdAt: Date
 }): PromptProposal {
   return {
@@ -109,6 +110,7 @@ export function parseProposalFromDb(row: {
     userEdits: row.userEdits ?? undefined,
   approvedAt: row.approvedAt?.toISOString(),
   dispatchedAt: row.dispatchedAt?.toISOString(),
+  deliveredAt: row.deliveredAt?.toISOString(),
   createdAt: row.createdAt.toISOString(),
   }
 }

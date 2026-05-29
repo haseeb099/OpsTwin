@@ -95,7 +95,7 @@ export function WorkflowStrip({
   currentStep: WorkflowStep
   onOpenGuide?: () => void
 }) {
-  const current = STEPS[currentStep - 1]
+  const current = STEPS.find((s) => s.n === currentStep)
   return (
     <div
       style={{
@@ -157,7 +157,7 @@ export function WorkflowStrip({
       >
         <span style={{ color: C.accent, fontWeight: 700 }}>Step {currentStep}</span>
         {' · '}
-        {current.title}
+        {current?.title ?? 'Getting started'}
       </div>
       {onOpenGuide && (
         <button
@@ -311,7 +311,7 @@ export default function WorkflowGuide({
       )}
 
       <div style={{ marginTop: 12, fontSize: 11, color: C.textMuted }}>
-        <strong>Right now → Step {currentStep}:</strong> {STEPS[currentStep - 1].title}
+        <strong>Right now → Step {currentStep}:</strong> {STEPS.find((s) => s.n === currentStep)?.title ?? 'Getting started'}
       </div>
     </div>
   )

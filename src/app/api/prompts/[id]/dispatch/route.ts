@@ -22,6 +22,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       data: {
         status: 'dispatched',
         dispatchedAt: new Date(),
+        deliveredAt: null,
         approvedAt: existing.approvedAt ?? new Date(),
       },
     })

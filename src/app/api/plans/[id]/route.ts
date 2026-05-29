@@ -5,15 +5,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { parsePlanFromDb } from '@/lib/plan-engine'
-import { analyzePlanVsRun } from '@/lib/gap-analyzer'
+import { analyzePlanVsRun, advanceAfterManualComplete, applyStepAction, isPlanComplete } from '@/lib/gap-analyzer'
 import { parseRunJson, type RawRunJson } from '@/lib/audit-parser'
 import type { PlanStep } from '@/types'
 
 export const dynamic = 'force-dynamic'
 
 const PatchPlanSchema = z.object({
-  action: z.enum(['approve', 'update_steps', 'complete', 'update_documents']),
+  action: z.enum(['approve', 'update_steps', 'complete', 'update_documents', 'step_action']),
   steps: z.array(z.record(z.unknown())).optional(),
+  stepOrder: z.number().int().positive().optional(),
+  stepAction: z.enum(['mark_done', 'mark_failed', 'skip', 'reset', 'activate']).optional(),
   documents: z
     .object({
       prd: z.string(),
@@ -21,6 +23,7 @@ const PatchPlanSchema = z.object({
       useCases: z.string(),
       testPlan: z.string(),
       architecture: z.string(),
+      erd: z.string().optional(),
     })
     .optional(),
 })
@@ -69,7 +72,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     if (data.action === 'approve') {
       const steps = JSON.parse(existing.stepsJson) as PlanStep[]
-      if (steps[0]) steps[0].status = 'in_progress'
+      const now = new Date().toISOString()
+      if (steps[0]) {
+        steps[0].status = 'in_progress'
+        steps[0].startedAt = now
+      }
 
       const row = await prisma.plan.update({
         where: { id: params.id },
@@ -97,6 +104,26 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const row = await prisma.plan.update({
         where: { id: params.id },
         data: { status: 'complete' },
+      })
+      return NextResponse.json({ plan: parsePlanFromDb(row) })
+    }
+
+    if (data.action === 'step_action') {
+      if (!data.stepOrder || !data.stepAction) {
+        return NextResponse.json({ error: 'stepOrder and stepAction required' }, { status: 400 })
+      }
+      let steps = JSON.parse(existing.stepsJson) as PlanStep[]
+      steps = applyStepAction(steps, data.stepOrder, data.stepAction)
+      if (['mark_done', 'skip'].includes(data.stepAction)) {
+        steps = advanceAfterManualComplete(steps, data.stepOrder)
+      }
+      const allComplete = isPlanComplete(steps)
+      const row = await prisma.plan.update({
+        where: { id: params.id },
+        data: {
+          stepsJson: JSON.stringify(steps),
+          status: allComplete ? 'complete' : 'in_progress',
+        },
       })
       return NextResponse.json({ plan: parsePlanFromDb(row) })
     }

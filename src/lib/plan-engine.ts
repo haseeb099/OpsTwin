@@ -231,6 +231,20 @@ ${steps.flatMap((s) => s.expectedFiles).join(', ')}
 ## Agent contract
 .opstwin/rules.md — mandatory audit JSON after every run
 `,
+    erd: `# ERD — ${input.title}
+
+## Entities (draft)
+Define core entities from requirements step. Update after Step 2.
+
+\`\`\`mermaid
+erDiagram
+  USER ||--o{ TASK : creates
+  TASK ||--o{ RUN : has
+\`\`\`
+
+## Notes
+Link to prisma/schema or domain models when Step 3+ runs.
+`,
   }
 }
 
@@ -246,13 +260,14 @@ export function parsePlanFromDb(row: {
   createdAt: Date
   updatedAt: Date
 }): import('@/types').MvpPlan {
+  const documents = JSON.parse(row.documentsJson) as DocumentBundle
   return {
     id: row.id,
     taskId: row.taskId,
     version: row.version,
     originalPrompt: row.originalPrompt,
     steps: JSON.parse(row.stepsJson) as PlanStep[],
-    documents: JSON.parse(row.documentsJson) as DocumentBundle,
+    documents: { ...documents, erd: documents.erd ?? '' },
     status: row.status as import('@/types').PlanStatus,
     approvedAt: row.approvedAt?.toISOString(),
     createdAt: row.createdAt.toISOString(),
@@ -265,5 +280,17 @@ export function getNextPendingStep(steps: PlanStep[]): PlanStep | undefined {
 }
 
 export function buildStepPrompt(step: PlanStep): string {
-  return step.agentPrompt
+  const scope = step.expectedFiles.length
+    ? step.expectedFiles.join(', ')
+    : '(minimal files for this step only)'
+  return `## OpsTwin — Step ${step.order} ONLY
+Do NOT work on other plan steps. Stop after this step's verification passes.
+
+${step.agentPrompt}
+
+BOUNDED SCOPE:
+- Touch only: ${scope}
+- Max one iteration — first working version wins
+- Write .ops/runs/<run_id>/last_run.json when done with step ${step.order} marked in decision_trace
+`
 }

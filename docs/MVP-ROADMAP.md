@@ -83,52 +83,45 @@ Phase 0 ──▶ Phase 1 ──▶ Phase 2 ──▶ Phase 3 ──▶ Phase 4 
 
 ---
 
-## Phase 3: Prompt Dispatch (copy-first)
+## Phase 3: Auto-Watch Loop ✅ (shipped)
 
-**Goal:** Reduce friction after approval; still human-in-the-loop.
+**Goal:** Watch → analyze → improve → one-click dispatch.
 
-| Deliverable | Description |
+| Deliverable | Status |
 |---|---|
-| One-click approved prompt copy | Enhanced UI |
-| `opstwin-cli.js dispatch` | CLI command |
-| Approval confirmation toast | UX polish |
-| Dispatch audit log | Record when prompt sent |
+| Analysis engine + LLM propose | Done |
+| Stack context collector (CLI + API) | Done |
+| Auto-propose on upload (`OPSTWIN_AUTO_PROPOSE`) | Done |
+| `opstwin next`, `opstwin sync` CLI | Done |
+| File-based prompt capture (`inbound.md`) | Done |
+| Widget dashboard (react-grid-layout) | Done |
 
-**Exit criteria:** [ACCEPTANCE-CRITERIA.md](./ACCEPTANCE-CRITERIA.md) Phase 3
-
-**Estimated effort:** 1–2 weeks
+See [FUTURE-VISION.md](./FUTURE-VISION.md).
 
 ---
 
-## Phase 4: Auto-Dispatch
+## Phase 4: Agent auto-dispatch (partial)
 
 **Goal:** Inject approved prompts into agent chat automatically.
 
-| Deliverable | Description |
+| Deliverable | Status |
 |---|---|
-| Cursor integration | MCP or extension hook |
-| Claude Code integration | CLI or API hook |
-| At least one agent E2E | Full approve → auto-run loop |
-| Safety: approval still required | No autonomous without gate |
-
-**Risk:** Agent API availability varies by vendor.
-
-**Estimated effort:** 4–8 weeks (agent-dependent)
+| `opstwin-cli.js dispatch` + `next --yes` | Done |
+| `.ops/dispatch/pending-prompt.md` contract | Done |
+| Cursor MCP / extension hook | Future |
+| Full approve → auto-run without file | Future |
 
 ---
 
-## Phase 5: UI/UX Review
+## Phase 5: UI/UX Review (partial)
 
-**Goal:** Visual and flow gap detection.
-
-| Deliverable | Description |
+| Deliverable | Status |
 |---|---|
-| Screenshot capture | Playwright or manual upload |
-| Acceptance criteria check | Compare UI vs plan |
-| UI gap mismatches | New mismatch type |
-| UI fix prompts | Included in proposal |
-
-**Estimated effort:** 3–4 weeks
+| Screenshot capture | Done |
+| Terminal observation | Done |
+| Widget dashboard | Done |
+| Playwright auto-screenshot | Future |
+| UI gap mismatches | Future |
 
 ---
 

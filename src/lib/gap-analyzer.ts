@@ -81,15 +81,98 @@ export function updateStepStatusesFromRun(
   steps: PlanStep[],
   stepOrder: number,
   runOk: boolean,
+  runId?: string,
+  finishedAt?: string,
 ): PlanStep[] {
+  const ts = finishedAt ?? new Date().toISOString()
   return steps.map((s) => {
-    if (s.order < stepOrder) return { ...s, status: 'complete' as const }
-    if (s.order === stepOrder) {
-      return { ...s, status: runOk ? ('complete' as const) : ('failed' as const) }
+    if (s.order < stepOrder) {
+      return {
+        ...s,
+        status: 'complete' as const,
+        completedAt: s.completedAt ?? ts,
+      }
     }
-    if (s.order === stepOrder + 1 && runOk) return { ...s, status: 'in_progress' as const }
+    if (s.order === stepOrder) {
+      if (runOk) {
+        return {
+          ...s,
+          status: 'complete' as const,
+          completedAt: ts,
+          lastRunId: runId ?? s.lastRunId,
+        }
+      }
+      return {
+        ...s,
+        status: 'failed' as const,
+        lastRunId: runId ?? s.lastRunId,
+      }
+    }
+    if (s.order === stepOrder + 1 && runOk) {
+      return {
+        ...s,
+        status: 'in_progress' as const,
+        startedAt: s.startedAt ?? ts,
+      }
+    }
     return s
   })
+}
+
+export function applyStepAction(
+  steps: PlanStep[],
+  stepOrder: number,
+  action: 'mark_done' | 'mark_failed' | 'skip' | 'reset' | 'activate',
+): PlanStep[] {
+  const ts = new Date().toISOString()
+  return steps.map((s) => {
+    if (s.order !== stepOrder) {
+      if (action === 'activate' && s.order < stepOrder && s.status !== 'complete') {
+        return { ...s, status: 'complete' as const, completedAt: s.completedAt ?? ts, skipped: true }
+      }
+      if (action === 'activate' && s.order > stepOrder) {
+        return { ...s, status: 'pending' as const, startedAt: undefined, completedAt: undefined }
+      }
+      return s
+    }
+    switch (action) {
+      case 'mark_done':
+      case 'skip':
+        return {
+          ...s,
+          status: 'complete' as const,
+          completedAt: ts,
+          skipped: action === 'skip' ? true : s.skipped,
+        }
+      case 'mark_failed':
+        return { ...s, status: 'failed' as const }
+      case 'reset':
+        return {
+          ...s,
+          status: 'pending' as const,
+          startedAt: undefined,
+          completedAt: undefined,
+          lastRunId: undefined,
+          skipped: false,
+        }
+      case 'activate':
+        return { ...s, status: 'in_progress' as const, startedAt: s.startedAt ?? ts }
+      default:
+        return s
+    }
+  })
+}
+
+/** After mark_done/skip on step N, open step N+1 if present. */
+export function advanceAfterManualComplete(steps: PlanStep[], stepOrder: number): PlanStep[] {
+  const ts = new Date().toISOString()
+  const next = steps.find((s) => s.order === stepOrder + 1)
+  if (!next || next.status === 'complete') return steps
+  return steps.map((s) =>
+    s.order === stepOrder + 1
+      ? { ...s, status: 'in_progress' as const, startedAt: s.startedAt ?? ts }
+      : s,
+  )
 }
 
 export function isPlanComplete(steps: PlanStep[]): boolean {

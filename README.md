@@ -64,9 +64,11 @@ Open **http://localhost:3000**
 | `GROQ_API_KEY` | Groq API key for AI planning (optional; falls back to rules) |
 | `GROQ_MODEL` | e.g. `llama-3.3-70b-versatile` |
 | `LLM_PROVIDER` | `groq` or `openai` |
-| `OPSTWIN_AUTO_PROPOSE` | Auto-create draft proposal on audit upload |
+| `OPSTWIN_AUTO_PROPOSE` | Auto-create draft proposal on audit upload (default `true`) |
 | `OPSTWIN_LLM_PROPOSE` | Use LLM for propose when key set (default `true`) |
 | `OPSTWIN_ADMIN_PASSWORD` | Required when auth is enabled |
+| `CURSOR_API_KEY` | For CLI autopilot (`loop` / `daemon`) via Cursor SDK |
+| `CURSOR_MODEL` | e.g. `composer-2.5` (optional) |
 
 ### 3. Connect your code project
 
@@ -163,15 +165,17 @@ OpsTwin uses one audit contract: `.ops/runs/<run_id>/last_run.json`. Any agent t
              │ REST API
 ┌────────────▼────────────────────────────────────────────────────┐
 │  /api/tasks  /api/plans  /api/prompts  /api/runs  /api/memory  │
-│  /api/outcomes  /api/auth  /api/health                          │
+│  /api/outcomes  /api/auth  /api/health  /api/cli             │
+│  /api/runs/[id]/analyze  /api/prompts/capture                │
+│  /api/plans/[id]/timeline                                    │
 └────────────┬────────────────────────────────────────────────────┘
              │
 ┌────────────▼──────────────┐  ┌──────────────────────────────────┐
 │  PRISMA + SQLite/Postgres │  │  ENGINES                         │
 │  tasks, plans, prompts,   │  │  plan-engine (Groq/OpenAI)       │
-│  runs, file_edits,        │  │  gap-analyzer                    │
-│  terminal_logs,           │  │  prompt-proposer                 │
-│  screenshots, memory      │  │  memory-engine                   │
+│  runs, cli_connections,   │  │  gap-analyzer · analysis-engine  │
+│  captured_prompts,        │  │  prompt-proposer · llm-propose   │
+│  terminal_logs, memory    │  │  context-collector · memory      │
 └───────────────────────────┘  └──────────────────────────────────┘
              ▲
              │ audit JSON + CLI watch
@@ -189,13 +193,17 @@ OpsTwin uses one audit contract: `.ops/runs/<run_id>/last_run.json`. Any agent t
 ### Orchestration (MVP loop)
 
 - **MVP plan generation** — Groq or OpenAI decomposes your idea into steps plus PRD, TRD, use cases, test plan, and architecture docs
+- **Command Center** — Pipeline timeline, step control (Start / Done / Skip / Retry), activity feed, and automation panel ([docs/COMMAND-CENTER.md](./docs/COMMAND-CENTER.md))
 - **Plan approval workflow** — Review and edit documents before any agent runs
+- **Analyze Run** — LLM or rules-based gap analysis with improved prompt preview
 - **Prompt proposal & dispatch** — Gap-aware next prompts; write to `.ops/dispatch/pending-prompt.md` for agents to read
-- **Plan vs run gap analysis** — Compares approved steps against actual audit results
+- **Plan vs run gap analysis** — Compares approved steps against actual audit results; auto-advances steps on clean audits
+- **Prompt capture** — Append prompts to `.ops/prompts/inbound.md`; CLI uploads via `prompt-watch`
 
 ### Audit & memory
 
 - **Agent-agnostic audit log** — Files changed, skipped, inspected, TODOs, tests, decision trace, confidence
+- **Stack context** — CLI collects repo framework, routes, ORM, and test signals on upload
 - **Mismatch detection** — Blockers (failed tests, missing changes) and warnings (TODOs, low confidence)
 - **Focused rerun prompt** — One-click copy of a scoped fix prompt for the next agent run
 - **Pattern memory** — Learns from accepted/rejected outcomes; hints shown when creating new tasks
@@ -203,10 +211,11 @@ OpsTwin uses one audit contract: `.ops/runs/<run_id>/last_run.json`. Any agent t
 
 ### Dashboard & CLI
 
-- **Task dashboard** — Search, status filters, live polling for running jobs
+- **Task dashboard** — Copyable task IDs, search by UUID, draggable widget grid, status filters
 - **MVP Plan + Audit tabs** — Per-task planning and run review
 - **Guide view** — Full step-by-step reference (sidebar ? icon)
-- **CLI watcher** — Auto-upload audits from `.ops/runs/`
+- **CLI watcher** — Auto-upload audits from `.ops/runs/` with retry and stack context
+- **CLI autopilot** — `connect`, `daemon`/`autopilot`, and `loop` for supervised agent runs
 - **One-command init** — `opstwin-init.js` sets up any repo for all supported agents
 - **Optional auth** — Password-protected dashboard for production
 
@@ -218,22 +227,38 @@ OpsTwin uses one audit contract: `.ops/runs/<run_id>/last_run.json`. Any agent t
 
 ```bash
 # Watch .ops/runs/ and auto-upload (recommended)
-node opstwin-cli.js watch
+node opstwin-cli.js watch [taskId]
+
+# Connect CLI session to a task (stores .ops/opstwin.config.json)
+node opstwin-cli.js connect <taskId>
+
+# Supervised autopilot — propose, dispatch, watch, optional Cursor run
+node opstwin-cli.js daemon <taskId>    # alias: autopilot
+node opstwin-cli.js loop <taskId>      # one iteration of the loop
+
+# Disconnect CLI session
+node opstwin-cli.js disconnect [taskId]
 
 # Upload a specific audit file
 node opstwin-cli.js upload .ops/runs/<run_id>/last_run.json <taskId>
 
+# List draft/approved proposals for a task
+node opstwin-cli.js proposals <taskId>
+
 # Fetch approved prompt → .ops/dispatch/pending-prompt.md
 node opstwin-cli.js dispatch <proposalId>
+
+# Run dispatched prompt via Cursor SDK (needs CURSOR_API_KEY)
+node opstwin-cli.js run-agent [.ops/dispatch/pending-prompt.md]
 
 # One-click propose → approve → dispatch
 node opstwin-cli.js next --yes
 
-# Upload audit + prompt file + terminal
-node opstwin-cli.js sync
+# Upload audit + prompt file + terminal in one shot
+node opstwin-cli.js sync [taskId]
 
 # Watch .ops/prompts/inbound.md for captured prompts
-node opstwin-cli.js prompt-watch
+node opstwin-cli.js prompt-watch [taskId]
 
 # Run a command and capture terminal output for the next upload
 node opstwin-cli.js run npm test
@@ -297,6 +322,7 @@ Manual upload: use the **Upload audit** page or drag `last_run.json` there.
 | `npm run dev` | Start Next.js dev server |
 | `npm run dev:fresh` | Regenerate Prisma client, then start dev |
 | `npm run build` | Production build |
+| `npm run lint` | ESLint (Next.js) |
 | `npm run typecheck` | TypeScript check |
 | `npm run db:push` | Apply Prisma schema to database |
 | `npm run db:studio` | Open Prisma Studio |
@@ -311,12 +337,13 @@ OpsTwin/
 ├── docs/                   ← Full SE documentation (PRD, TRD, architecture, …)
 ├── prisma/schema.prisma    ← Database schema
 ├── src/
-│   ├── app/api/            ← REST routes (tasks, plans, prompts, runs, auth, …)
-│   ├── components/         ← OpsTwin dashboard, TaskIdChip, PlanView, WorkflowGuide, …
-│   └── lib/                ← plan-engine, gap-analyzer, prompt-proposer, llm, auth
-├── opstwin-cli.js          ← Watch, upload, dispatch, run, terminal, screenshot
+│   ├── app/api/            ← REST routes (tasks, plans, prompts, runs, cli, …)
+│   ├── components/         ← OpsTwin dashboard, command-center, PlanView, …
+│   └── lib/                ← plan-engine, analysis-engine, context-collector, …
+├── scripts/                ← cursor-agent-run.mjs (Cursor SDK helper)
+├── opstwin-cli.js          ← Watch, autopilot, dispatch, sync, run, …
 ├── opstwin-init.js         ← One-command repo setup
-├── test-opstwin.js         ← E2E API test suite (16 tests)
+├── test-opstwin.js         ← E2E API test suite (21 tests)
 └── .env.example
 ```
 
@@ -342,6 +369,9 @@ your-project/
 | `tasks` | MVP ideas and original prompts |
 | `plans` | Generated MVP plans (steps + documents JSON) |
 | `prompt_proposals` | AI-proposed and approved agent prompts |
+| `captured_prompts` | Prompts captured from inbound file or dashboard |
+| `cli_connections` | Active CLI daemon/loop sessions per task |
+| `cli_run_requests` | Queued Cursor agent runs from dashboard |
 | `cursor_runs` | Agent execution records |
 | `file_edits` | Per-file diffs |
 | `inspected_files` | Files read but not changed |
@@ -359,6 +389,7 @@ your-project/
 Full software engineering docs in [`docs/`](./docs/README.md):
 
 - **[Quick Start](./docs/QUICKSTART.md)** ← start here
+- **[Command Center](./docs/COMMAND-CENTER.md)** · **[Future Vision](./docs/FUTURE-VISION.md)**
 - [PRD](./docs/PRD.md) · [TRD](./docs/TRD.md) · [Use Cases](./docs/USE-CASES.md)
 - [System Architecture](./docs/SYSTEM-ARCHITECTURE.md) · [Memory Layers](./docs/MEMORY-LAYERS.md)
 - [API Specification](./docs/API-SPECIFICATION.md) · [Security](./docs/SECURITY.md)
