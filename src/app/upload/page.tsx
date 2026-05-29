@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { formatTaskId, TaskIdChip } from '@/components/TaskIdChip'
 import type { AuditReport } from '@/types'
 
 const C = {
@@ -232,10 +233,23 @@ export default function UploadPage() {
             {tasks.length === 0 && <option value="">(no tasks — create one first)</option>}
             {tasks.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.title} · {t.repo}
+                {t.title} · {formatTaskId(t.id)} · {t.repo}
               </option>
             ))}
           </select>
+          {selectedTaskId && (
+            <div style={{ marginTop: 10 }}>
+              <TaskIdChip
+                id={selectedTaskId}
+                onCopied={(msg) =>
+                  setToast({
+                    msg,
+                    variant: msg.includes('failed') ? 'error' : 'success',
+                  })
+                }
+              />
+            </div>
+          )}
         </div>
 
         <div

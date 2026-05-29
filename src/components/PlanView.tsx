@@ -1,7 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import type { MvpPlan, PlanGap, PromptProposal } from '@/types'
+import { TaskIdChip } from '@/components/TaskIdChip'
+import AutomationPanel from '@/components/AutomationPanel'
+import type { AnalysisPreview, CapturedPromptRecord, MvpPlan, PlanGap, PromptProposal } from '@/types'
 
 const C = {
   bgCard: '#0f1218',
@@ -41,6 +43,10 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
   const [editingDocs, setEditingDocs] = useState(false)
   const [editDocs, setEditDocs] = useState<MvpPlan['documents'] | null>(null)
   const [llmProvider, setLlmProvider] = useState<string>('none')
+  const [latestRunId, setLatestRunId] = useState<string | null>(null)
+  const [analysisPreview, setAnalysisPreview] = useState<AnalysisPreview | null>(null)
+  const [proposeSource, setProposeSource] = useState<'llm' | 'rules'>('rules')
+  const [capturedPrompt, setCapturedPrompt] = useState<CapturedPromptRecord | null>(null)
 
   const loadPlan = useCallback(async () => {
     setLoading(true)
@@ -56,11 +62,19 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
       if (data.plan) {
         const detail = await fetch(`/api/plans/${data.plan.id}`)
         if (detail.ok) {
-          const d = (await detail.json()) as { gaps: PlanGap[] }
+          const d = (await detail.json()) as { gaps: PlanGap[]; latestRunId?: string | null }
           setGaps(d.gaps ?? [])
+          setLatestRunId(d.latestRunId ?? null)
         }
       } else {
         setGaps([])
+        setLatestRunId(null)
+      }
+
+      const capRes = await fetch(`/api/prompts/capture?taskId=${taskId}`)
+      if (capRes.ok) {
+        const capData = (await capRes.json()) as { latest: CapturedPromptRecord | null }
+        setCapturedPrompt(capData.latest ?? null)
       }
 
       const pRes = await fetch(`/api/prompts?taskId=${taskId}`)
@@ -140,15 +154,73 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
       const res = await fetch('/api/prompts/propose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, planStepOrder }),
+        body: JSON.stringify({ taskId, planStepOrder, runId: latestRunId ?? undefined }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = (await res.json()) as { proposal: PromptProposal }
+      const data = (await res.json()) as {
+        proposal: PromptProposal
+        source?: 'llm' | 'rules'
+      }
       setProposals((prev) => [data.proposal, ...prev])
+      setProposeSource(data.source ?? 'rules')
       setShowProposal(true)
       onToast('Prompt proposed — review and approve', 'success')
     } catch (err) {
       onToast(err instanceof Error ? err.message : 'Failed to propose prompt', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const analyzeRun = async () => {
+    if (!latestRunId) {
+      onToast('No run to analyze — upload an audit first', 'error')
+      return
+    }
+    setBusy('analyze')
+    try {
+      const res = await fetch(`/api/runs/${latestRunId}/analyze`, { method: 'POST' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = (await res.json()) as { analysis: AnalysisPreview; gaps: PlanGap[] }
+      setAnalysisPreview(data.analysis)
+      setGaps(data.gaps)
+      onToast(`Analysis complete (${data.analysis.source})`, 'success')
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : 'Analyze failed', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const sendToAgent = async (proposalId: string) => {
+    setBusy('send')
+    try {
+      const approveRes = await fetch(`/api/prompts/${proposalId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve' }),
+      })
+      if (!approveRes.ok) throw new Error(`Approve HTTP ${approveRes.status}`)
+
+      const dispatchRes = await fetch(`/api/prompts/${proposalId}/dispatch`, { method: 'POST' })
+      if (!dispatchRes.ok) throw new Error(`Dispatch HTTP ${dispatchRes.status}`)
+
+      const data = (await dispatchRes.json()) as { prompt: string }
+      await copyText(data.prompt, 'Sent to agent')
+
+      await fetch('/api/cli/run-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId, proposalId }),
+      }).catch(() => {})
+
+      onToast(
+        'Sent to agent — CLI will deliver and run Cursor (if loop daemon is active)',
+        'success',
+      )
+      await loadPlan()
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : 'Send to agent failed', 'error')
     } finally {
       setBusy(null)
     }
@@ -181,10 +253,7 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = (await res.json()) as { prompt: string; dispatchFiles: { primary: string } }
       await copyText(data.prompt, 'Dispatched prompt')
-      onToast(
-        `Dispatched! Run: node opstwin-cli.js dispatch ${proposalId} in your repo`,
-        'success',
-      )
+      onToast('Dispatched — CLI autopilot will write pending-prompt.md automatically', 'success')
       await loadPlan()
     } catch (err) {
       onToast(err instanceof Error ? err.message : 'Dispatch failed', 'error')
@@ -221,6 +290,7 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
 
   const latestDraft = proposals.find((p) => p.status === 'draft')
   const latestApproved = proposals.find((p) => p.status === 'approved')
+  const latestWithAgent = proposals.find((p) => p.status === 'dispatched' || p.deliveredAt)
 
   if (loading) {
     return <div style={{ color: C.textMuted, padding: 24 }}>Loading plan...</div>
@@ -238,6 +308,9 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
         }}
       >
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>No MVP plan yet</div>
+        <div style={{ marginBottom: 12 }}>
+          <TaskIdChip id={taskId} onCopied={(msg) => onToast(msg, 'success')} />
+        </div>
         <div style={{ color: C.textMuted, marginBottom: 24, fontSize: 13 }}>
           Generate a step-by-step plan and docs for &ldquo;{taskTitle}&rdquo;
         </div>
@@ -291,7 +364,10 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
       >
         <div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>MVP Plan v{plan.version}</div>
-          <div style={{ color: C.textMuted, fontSize: 12, marginTop: 4 }}>
+          <div style={{ marginTop: 8 }}>
+            <TaskIdChip id={taskId} compact onCopied={(msg) => onToast(msg, 'success')} />
+          </div>
+          <div style={{ color: C.textMuted, fontSize: 12, marginTop: 8 }}>
             Status:{' '}
             <span style={{ color: plan.status === 'approved' ? C.greenText : C.yellowText }}>
               {plan.status}
@@ -312,17 +388,46 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
             </button>
           )}
           <button
+            onClick={analyzeRun}
+            disabled={!latestRunId || busy === 'analyze'}
+            style={btnSecondary}
+          >
+            {busy === 'analyze' ? '...' : 'Analyze Run'}
+          </button>
+          <button
             onClick={() => proposePrompt()}
             disabled={plan.status !== 'approved' || busy === 'propose'}
             style={btnSecondary}
           >
             {busy === 'propose' ? '...' : 'Propose Next Prompt'}
+            {(llmProvider === 'groq' || llmProvider === 'openai') && (
+              <span
+                style={{
+                  marginLeft: 6,
+                  fontSize: 9,
+                  background: C.accentDim,
+                  color: C.accent,
+                  padding: '1px 5px',
+                  borderRadius: 3,
+                  fontWeight: 700,
+                }}
+              >
+                LLM
+              </span>
+            )}
           </button>
           <button onClick={generatePlan} disabled={busy === 'generate'} style={btnSecondary}>
             Regenerate
           </button>
         </div>
       </div>
+
+      <AutomationPanel
+        taskId={taskId}
+        onToast={onToast}
+        onPropose={() => proposePrompt()}
+        latestProposalId={(latestDraft ?? latestApproved ?? latestWithAgent)?.id}
+      />
 
       <Section title={`Steps (${plan.steps.length})`}>
         {plan.steps.map((step) => (
@@ -363,6 +468,68 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
         ))}
       </Section>
 
+      {capturedPrompt && (
+        <Section title="Last Agent Prompt">
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>
+            From {capturedPrompt.source} · {new Date(capturedPrompt.capturedAt).toLocaleString()}
+          </div>
+          <pre
+            style={{
+              fontSize: 11,
+              color: C.textDim,
+              whiteSpace: 'pre-wrap',
+              maxHeight: 120,
+              overflow: 'auto',
+              margin: 0,
+              background: '#0a0c10',
+              padding: 10,
+              borderRadius: 6,
+              border: `1px solid ${C.border}`,
+            }}
+          >
+            {capturedPrompt.content.slice(0, 800)}
+          </pre>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>
+            Append prompts to <code style={{ color: C.accent }}>.ops/prompts/inbound.md</code> in
+            your repo — use <code style={{ color: C.accent }}>node opstwin-cli.js prompt-watch</code>
+          </div>
+        </Section>
+      )}
+
+      {analysisPreview && (
+        <Section title="Run Analysis">
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
+            {analysisPreview.rationale}
+            <span style={{ marginLeft: 8, color: analysisPreview.source === 'llm' ? C.accent : C.textDim }}>
+              [{analysisPreview.source}]
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: C.textDim, marginBottom: 8 }}>
+            Blockers: {analysisPreview.severitySummary.blockers} · Warnings:{' '}
+            {analysisPreview.severitySummary.warnings}
+            {analysisPreview.suggestedCommands.length > 0 && (
+              <> · Suggested: {analysisPreview.suggestedCommands.join(', ')}</>
+            )}
+          </div>
+          <pre
+            style={{
+              fontSize: 11,
+              color: C.textDim,
+              whiteSpace: 'pre-wrap',
+              maxHeight: 160,
+              overflow: 'auto',
+              margin: 0,
+              background: '#0a0c10',
+              padding: 10,
+              borderRadius: 6,
+              border: `1px solid ${C.border}`,
+            }}
+          >
+            {analysisPreview.improvedPrompt}
+          </pre>
+        </Section>
+      )}
+
       {gaps.length > 0 && (
         <Section title="Plan vs Run Gaps">
           {gaps.map((g) => (
@@ -402,6 +569,11 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
             >
               <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
                 {(latestDraft ?? latestApproved)!.rationale}
+                {latestDraft && proposeSource === 'llm' && (
+                  <span style={{ marginLeft: 8, color: C.accent, fontSize: 10, fontWeight: 700 }}>
+                    LLM
+                  </span>
+                )}
               </div>
               {showProposal && (
                 <pre
@@ -418,11 +590,20 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
                 </pre>
               )}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {latestDraft && (
+                  <button
+                    onClick={() => sendToAgent(latestDraft.id)}
+                    disabled={!!busy}
+                    style={btnPrimary}
+                  >
+                    {busy === 'send' ? '...' : 'Send to Agent'}
+                  </button>
+                )}
                 {(latestApproved ?? latestDraft) && (
                   <button
                     onClick={() => dispatchToAgent((latestApproved ?? latestDraft)!.id)}
                     disabled={!!busy}
-                    style={btnPrimary}
+                    style={btnSecondary}
                   >
                     Dispatch to Agent
                   </button>
@@ -450,6 +631,53 @@ export default function PlanView({ taskId, taskTitle, onToast, onPlanChange }: P
               </div>
             </div>
           )}
+        </Section>
+      )}
+
+      {!latestDraft && !latestApproved && latestWithAgent && (
+        <Section title="With Agent Now">
+          <div
+            style={{
+              background: '#052e22',
+              border: `1px solid ${C.green}`,
+              borderRadius: 6,
+              padding: 14,
+            }}
+          >
+            <div style={{ fontSize: 12, color: C.greenText, fontWeight: 700, marginBottom: 8 }}>
+              Prompt delivered to .ops/dispatch/pending-prompt.md — open Cursor in your repo to run it
+            </div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
+              {latestWithAgent.rationale}
+            </div>
+            <pre
+              style={{
+                fontSize: 11,
+                color: C.textDim,
+                whiteSpace: 'pre-wrap',
+                maxHeight: 160,
+                overflow: 'auto',
+                margin: '0 0 12px',
+                background: '#0a0c10',
+                padding: 10,
+                borderRadius: 6,
+                border: `1px solid ${C.border}`,
+              }}
+            >
+              {latestWithAgent.proposedPrompt}
+            </pre>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => copyText(latestWithAgent.proposedPrompt, 'Agent prompt')}
+                style={btnPrimary}
+              >
+                Copy prompt
+              </button>
+              <button onClick={() => proposePrompt()} disabled={!!busy} style={btnSecondary}>
+                {busy === 'propose' ? '...' : 'Propose Next (after agent finishes)'}
+              </button>
+            </div>
+          </div>
         </Section>
       )}
 

@@ -15,6 +15,8 @@ import type { AuditReport, MemoryEntry } from '@/types'
 import type { WorkflowStep } from '@/types/workflow'
 import PlanView from '@/components/PlanView'
 import RunObservations from '@/components/RunObservations'
+import { TaskIdChip } from '@/components/TaskIdChip'
+import WidgetGrid from '@/components/dashboard/WidgetGrid'
 import WorkflowGuide, { detectWorkflowStep, WorkflowStrip } from '@/components/WorkflowGuide'
 
 // ── Design Tokens ────────────────────────────────────────────────────────────
@@ -153,6 +155,25 @@ function timeAgo(iso: string): string {
   if (h < 24) return `${h}h ago`
   const d = Math.floor(h / 24)
   return `${d}d ago`
+}
+
+function taskMatchesSearch(task: TaskWithRuns, q: string): boolean {
+  const needle = q.toLowerCase()
+  return (
+    task.title.toLowerCase().includes(needle) ||
+    task.repo.toLowerCase().includes(needle) ||
+    task.branch.toLowerCase().includes(needle) ||
+    task.id.toLowerCase().includes(needle) ||
+    (task.runs[0]?.id.toLowerCase().includes(needle) ?? false)
+  )
+}
+
+function setTaskUrlParam(taskId: string | null) {
+  if (typeof window === 'undefined') return
+  const url = new URL(window.location.href)
+  if (taskId) url.searchParams.set('task', taskId)
+  else url.searchParams.delete('task')
+  window.history.replaceState({}, '', url.toString())
 }
 
 // ── Small reusable bits ──────────────────────────────────────────────────────
@@ -544,6 +565,7 @@ function NewTaskModal({
   const [prompt, setPrompt] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [hintOpen, setHintOpen] = useState(true)
+  const [createdId, setCreatedId] = useState<string | null>(null)
 
   function getTaskType(text: string): string {
     const lower = text.toLowerCase()
@@ -582,9 +604,11 @@ function NewTaskModal({
         const data = (await res.json().catch(() => null)) as { error?: string } | null
         throw new Error(data?.error ?? `HTTP ${res.status}`)
       }
-      onToast('Task created', 'success')
+      const data = (await res.json()) as { task: { id: string } }
+      setCreatedId(data.task.id)
+      setTaskUrlParam(data.task.id)
       onCreated()
-      onClose()
+      onToast('Task created — copy the task ID for the CLI', 'success')
     } catch (err) {
       onToast(err instanceof Error ? err.message : 'Failed to create task', 'error')
     } finally {
@@ -617,9 +641,46 @@ function NewTaskModal({
         }}
       >
         <h3 style={{ color: C.text, fontWeight: 700, fontSize: 17, margin: '0 0 20px' }}>
-          New Cursor Task
+          {createdId ? 'Task created' : 'New Cursor Task'}
         </h3>
 
+        {createdId ? (
+          <>
+            <p style={{ color: C.textDim, fontSize: 13, margin: '0 0 16px', lineHeight: 1.5 }}>
+              Copy this task ID into your terminal before running{' '}
+              <code style={{ color: C.accent }}>opstwin-cli.js watch</code>:
+            </p>
+            <TaskIdChip
+              id={createdId}
+              onCopied={(msg) => onToast(msg, msg.includes('failed') ? 'error' : 'success')}
+            />
+            <p style={{ color: C.textMuted, fontSize: 11, margin: '14px 0 20px' }}>
+              Or open{' '}
+              <code style={{ color: C.textDim }}>
+                ?task={createdId}
+              </code>{' '}
+              in the dashboard URL.
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                width: '100%',
+                background: C.accent,
+                border: 'none',
+                color: '#000',
+                padding: '10px 0',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              Done
+            </button>
+          </>
+        ) : (
+          <>
         <div style={{ marginBottom: 14 }}>
           <label
             style={{
@@ -842,6 +903,8 @@ function NewTaskModal({
             {submitting ? 'Creating...' : 'Start Task \u2192'}
           </button>
         </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -867,11 +930,8 @@ function Dashboard({
   const [filterStatus, setFilterStatus] = useState<'all' | RunStatus | 'pending'>('all')
 
   const filteredTasks = tasks.filter((task) => {
-    const q = search.toLowerCase()
-    const matchesSearch =
-      search === '' ||
-      task.title.toLowerCase().includes(q) ||
-      task.repo.toLowerCase().includes(q)
+    const q = search.trim().toLowerCase()
+    const matchesSearch = q === '' || taskMatchesSearch(task, q)
     const taskStatus = task.runs[0]?.status ?? 'pending'
     const matchesStatus = filterStatus === 'all' || taskStatus === filterStatus
     return matchesSearch && matchesStatus
@@ -930,9 +990,14 @@ function Dashboard({
         </button>
       </div>
 
-      <WorkflowStrip currentStep={workflowStep} onOpenGuide={onOpenGuide} />
+      <WidgetGrid
+        tasks={tasks}
+        memory={memory}
+        workflowStep={workflowStep}
+        onOpenGuide={onOpenGuide}
+      />
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
+      <div style={{ display: 'none', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
         <MetricCard label="Total Tasks" value={total} sub="all time" />
         <MetricCard
           label="Completion Rate"
@@ -997,7 +1062,7 @@ function Dashboard({
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search tasks…"
+        placeholder="Search by title, repo, branch, or task / run ID…"
         style={{
           width: '100%',
           background: C.bg,
@@ -1150,11 +1215,13 @@ function Dashboard({
                     color: C.textMuted,
                     fontSize: 12,
                     fontFamily: 'monospace',
+                    marginBottom: 6,
                   }}
                 >
                   {task.repo} · {task.branch} ·{' '}
                   {run ? timeAgo(run.startedAt) : timeAgo(task.createdAt)}
                 </div>
+                <TaskIdChip id={task.id} compact />
               </div>
 
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1311,6 +1378,9 @@ function AuditView({
             color: C.textMuted,
           }}
         >
+          <div style={{ marginBottom: 12 }}>
+            <TaskIdChip id={task.id} />
+          </div>
           No runs yet for <span style={{ color: C.text }}>{task.title}</span>.
         </div>
       </div>
@@ -1368,7 +1438,20 @@ function AuditView({
               marginBottom: 4,
             }}
           >
-            AUDIT REPORT · {latestRun.id}
+            AUDIT REPORT
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <TaskIdChip id={task.id} />
+          </div>
+          <div
+            style={{
+              color: C.textMuted,
+              fontSize: 11,
+              fontFamily: 'monospace',
+              marginBottom: 6,
+            }}
+          >
+            Run · {latestRun.id}
           </div>
           <h2 style={{ color: C.text, fontSize: 20, fontWeight: 700, margin: '0 0 6px' }}>
             {task.title}
@@ -1997,6 +2080,34 @@ export default function OpsTwin() {
   }, [loadTasks, loadMemory])
 
   useEffect(() => {
+    if (tasksLoading || tasks.length === 0) return
+    const param = new URLSearchParams(window.location.search).get('task')
+    if (!param) return
+    const match =
+      tasks.find((t) => t.id === param) ??
+      tasks.find((t) => t.id.startsWith(param))
+    if (match) {
+      setSelectedTask(match)
+      setTaskTab('plan')
+      setView('audit')
+    }
+  }, [tasks, tasksLoading])
+
+  const selectTask = useCallback((task: TaskWithRuns) => {
+    setSelectedTask(task)
+    setTaskTab('plan')
+    setView('audit')
+    setTaskUrlParam(task.id)
+  }, [])
+
+  const clearSelectedTask = useCallback(() => {
+    setSelectedTask(null)
+    setView('dashboard')
+    setTaskUrlParam(null)
+    loadTasks()
+  }, [loadTasks])
+
+  useEffect(() => {
     const hasRunning = tasks.some((t) => t.runs[0]?.status === 'running')
     if (!hasRunning) return
     const interval = setInterval(loadTasks, 5000)
@@ -2079,7 +2190,10 @@ export default function OpsTwin() {
             key={item.id}
             onClick={() => {
               setView(item.id)
-              if (item.id !== 'guide') setSelectedTask(null)
+              if (item.id !== 'guide') {
+                setSelectedTask(null)
+                if (item.id === 'dashboard') setTaskUrlParam(null)
+              }
             }}
             title={item.label}
             style={{
@@ -2147,11 +2261,7 @@ export default function OpsTwin() {
             memory={memory}
             workflowStep={workflowStep}
             onOpenGuide={openGuide}
-            onSelect={(task) => {
-              setSelectedTask(task)
-              setTaskTab('plan')
-              setView('audit')
-            }}
+            onSelect={selectTask}
           />
         )}
         {view === 'guide' && (
@@ -2207,6 +2317,38 @@ export default function OpsTwin() {
         )}
         {view === 'audit' && selectedTask && (
           <div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                gap: 12,
+                marginBottom: 16,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <h2
+                  style={{
+                    color: C.text,
+                    fontSize: 20,
+                    fontWeight: 700,
+                    margin: '0 0 8px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {selectedTask.title}
+                </h2>
+                <TaskIdChip
+                  id={selectedTask.id}
+                  onCopied={(msg) =>
+                    pushToast(msg, msg.includes('failed') ? 'error' : 'success')
+                  }
+                />
+              </div>
+            </div>
             <WorkflowStrip
               currentStep={workflowStep}
               onOpenGuide={openGuide}
@@ -2234,11 +2376,7 @@ export default function OpsTwin() {
                 </button>
               ))}
               <button
-                onClick={() => {
-                  setSelectedTask(null)
-                  setView('dashboard')
-                  loadTasks()
-                }}
+                onClick={clearSelectedTask}
                 style={{
                   marginLeft: 'auto',
                   background: 'none',
@@ -2260,15 +2398,7 @@ export default function OpsTwin() {
                 onPlanChange={setTaskPlanStatus}
               />
             ) : (
-              <AuditView
-                task={selectedTask}
-                onBack={() => {
-                  setSelectedTask(null)
-                  setView('dashboard')
-                  loadTasks()
-                }}
-                onToast={pushToast}
-              />
+              <AuditView task={selectedTask} onBack={clearSelectedTask} onToast={pushToast} />
             )}
           </div>
         )}

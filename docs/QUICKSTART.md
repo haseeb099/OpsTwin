@@ -29,9 +29,10 @@ Open **http://localhost:3000**
 2. Fill in:
    - **Title:** e.g. `Todo app with auth`
    - **Prompt:** describe what you want in plain English
-3. Click **Create**
+3. Click **Start Task**
+4. On the success screen, click **Copy** next to the task ID
 
-Copy the **task ID** from the URL or task card (you'll need it once for the CLI).
+The same ID also appears on every task card, in the task detail header, and in the URL as `?task=<uuid>`. You need it once for the CLI watcher in Step 5.
 
 ---
 
@@ -74,13 +75,37 @@ node opstwin-cli.js dispatch <proposal-id>
 In your code project:
 
 ```powershell
+# In your code project (not the OpsTwin folder):
 node opstwin-init.js
 $env:OPSTWIN_URL="http://localhost:3000"
-$env:OPSTWIN_TASK_ID="paste-your-task-id-here"
+$env:OPSTWIN_TASK_ID="paste-your-task-id-here"   # Copy from dashboard (Step 2)
 node opstwin-cli.js watch
+
+# Or pass the ID directly:
+node opstwin-cli.js watch paste-your-task-id-here
 ```
 
-Leave that running. Every time the agent finishes, OpsTwin updates automatically.
+Leave that running. Every time the agent finishes, OpsTwin updates automatically (with stack context). Set `OPSTWIN_AUTO_PROPOSE=true` on the server to auto-create draft proposals.
+
+**One-click dispatch:**
+
+```powershell
+node opstwin-cli.js next --yes
+```
+
+**Capture prompts from a file:**
+
+Append prompts to `.ops/prompts/inbound.md`, then:
+
+```powershell
+node opstwin-cli.js prompt-watch
+```
+
+**Sync everything at once:**
+
+```powershell
+node opstwin-cli.js sync
+```
 
 **Terminal capture (optional):**
 
@@ -95,9 +120,8 @@ node opstwin-cli.js run npm test
 1. Open your task → **Audit** tab
 2. See: files changed, tests, terminal, screenshots
 3. Go back to **MVP Plan** tab
-4. Click **Propose Next Prompt**
-5. Click **Approve & Copy** or **Dispatch to Agent**
-6. Paste into agent again → repeat until done
+4. Click **Analyze Run** or **Propose Next Prompt** (LLM badge when Groq/OpenAI key set)
+5. Click **Send to Agent** (approve + dispatch) or run `node opstwin-cli.js next --yes`
 
 ---
 

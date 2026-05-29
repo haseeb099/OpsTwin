@@ -64,7 +64,8 @@ Open **http://localhost:3000**
 | `GROQ_API_KEY` | Groq API key for AI planning (optional; falls back to rules) |
 | `GROQ_MODEL` | e.g. `llama-3.3-70b-versatile` |
 | `LLM_PROVIDER` | `groq` or `openai` |
-| `OPSTWIN_AUTH_DISABLED` | `true` for local dev without login |
+| `OPSTWIN_AUTO_PROPOSE` | Auto-create draft proposal on audit upload |
+| `OPSTWIN_LLM_PROPOSE` | Use LLM for propose when key set (default `true`) |
 | `OPSTWIN_ADMIN_PASSWORD` | Required when auth is enabled |
 
 ### 3. Connect your code project
@@ -77,7 +78,22 @@ node opstwin-init.js /path/to/your/project
 
 This copies `.opstwin/`, agent configs, `.ops/runs/`, and `opstwin-cli.js` into your project.
 
-### 4. Start the watcher (in your project folder)
+### 4. Copy your task ID
+
+Create a task with the **+** button, then copy the UUID from any of these places:
+
+| Location | How |
+|----------|-----|
+| **Success modal** | Shown right after **Start Task** — click **Copy** |
+| **Task cards** | Each card on the dashboard lists a compact ID + **Copy** |
+| **Task detail** | Open a task — ID appears under the title on Plan / Audit tabs |
+| **Search** | Paste a full or partial UUID to filter tasks |
+| **Browser URL** | `http://localhost:3000/?task=<uuid>` when a task is selected |
+| **Upload page** | Task dropdown shows IDs; selected task has **Copy** |
+
+You only need the task ID once to configure the CLI watcher below.
+
+### 5. Start the watcher (in your project folder)
 
 **Windows PowerShell:**
 
@@ -98,7 +114,14 @@ node opstwin-cli.js watch
 
 Leave this running. When your agent writes `.ops/runs/<id>/last_run.json`, OpsTwin updates automatically.
 
-### 5. Test that everything works
+**Alternative — pass task ID per command (no env var):**
+
+```powershell
+node opstwin-cli.js watch <task-id>
+node opstwin-cli.js upload .ops/runs/<run_id>/last_run.json <task-id>
+```
+
+### 6. Test that everything works
 
 With the dev server running:
 
@@ -106,9 +129,9 @@ With the dev server running:
 node test-opstwin.js
 ```
 
-Expected: **16/16 tests passed**
+Expected: **21/21 tests passed**
 
-See **[docs/QUICKSTART.md](./docs/QUICKSTART.md)** for a full 5-minute first run.
+See **[docs/FUTURE-VISION.md](./docs/FUTURE-VISION.md)** for the full auto-watch vision and **[docs/QUICKSTART.md](./docs/QUICKSTART.md)** for a 5-minute first run.
 
 ---
 
@@ -203,6 +226,15 @@ node opstwin-cli.js upload .ops/runs/<run_id>/last_run.json <taskId>
 # Fetch approved prompt → .ops/dispatch/pending-prompt.md
 node opstwin-cli.js dispatch <proposalId>
 
+# One-click propose → approve → dispatch
+node opstwin-cli.js next --yes
+
+# Upload audit + prompt file + terminal
+node opstwin-cli.js sync
+
+# Watch .ops/prompts/inbound.md for captured prompts
+node opstwin-cli.js prompt-watch
+
 # Run a command and capture terminal output for the next upload
 node opstwin-cli.js run npm test
 
@@ -245,13 +277,14 @@ node opstwin-init.js
 
 ### Typical session
 
-1. Create a task in the OpsTwin dashboard and copy the **task ID**
-2. **Generate MVP Plan** → **Approve Plan**
-3. **Copy prompt** on Step 1 (or **Dispatch to Agent** after proposing a prompt)
-4. Paste into Cursor / Claude / your agent in the target repo
-5. Agent writes `.ops/runs/<id>/last_run.json` (per `.opstwin/rules.md`)
-6. CLI watcher uploads it → open **Audit** tab
-7. **Propose Next Prompt** → approve → repeat
+1. Create a task in the OpsTwin dashboard → click **Copy** on the task ID (card, header, or success modal)
+2. Set `OPSTWIN_TASK_ID` and run `node opstwin-cli.js watch` in your code project (see Quickstart step 5)
+3. **Generate MVP Plan** → **Approve Plan**
+4. **Copy prompt** on Step 1 (or **Dispatch to Agent** after proposing a prompt)
+5. Paste into Cursor / Claude / your agent in the target repo
+6. Agent writes `.ops/runs/<id>/last_run.json` (per `.opstwin/rules.md`)
+7. CLI watcher uploads it → open **Audit** tab
+8. **Propose Next Prompt** → approve → repeat
 
 Manual upload: use the **Upload audit** page or drag `last_run.json` there.
 
@@ -279,7 +312,7 @@ OpsTwin/
 ├── prisma/schema.prisma    ← Database schema
 ├── src/
 │   ├── app/api/            ← REST routes (tasks, plans, prompts, runs, auth, …)
-│   ├── components/         ← OpsTwin dashboard, PlanView, WorkflowGuide, …
+│   ├── components/         ← OpsTwin dashboard, TaskIdChip, PlanView, WorkflowGuide, …
 │   └── lib/                ← plan-engine, gap-analyzer, prompt-proposer, llm, auth
 ├── opstwin-cli.js          ← Watch, upload, dispatch, run, terminal, screenshot
 ├── opstwin-init.js         ← One-command repo setup
